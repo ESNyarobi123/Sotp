@@ -97,7 +97,7 @@ test('initiating payment creates pending record and moves to processing', functi
 
     $component = Livewire::test(CaptivePortal::class)
         ->call('selectPlan', $plan->id)
-        ->set('phoneNumber', '255712345678')
+        ->set('phoneNumber', '712345678')
         ->call('initiatePayment')
         ->assertSet('step', 'processing');
 
@@ -123,7 +123,7 @@ test('check payment status transitions to success on completed', function () {
 
     $component = Livewire::test(CaptivePortal::class)
         ->call('selectPlan', $plan->id)
-        ->set('phoneNumber', '255712345678')
+        ->set('phoneNumber', '712345678')
         ->call('initiatePayment');
 
     $txId = $component->get('transactionId');
@@ -148,7 +148,7 @@ test('check payment status transitions to error on failed', function () {
 
     $component = Livewire::test(CaptivePortal::class)
         ->call('selectPlan', $plan->id)
-        ->set('phoneNumber', '255712345678')
+        ->set('phoneNumber', '712345678')
         ->call('initiatePayment');
 
     $txId = $component->get('transactionId');

@@ -31,7 +31,7 @@ class CaptivePortal extends Component
 
     public ?int $selectedPlanId = null;
 
-    #[Validate('required|regex:/^255[0-9]{9}$/')]
+    #[Validate('required|regex:/^0?[67][0-9]{8}$/', message: 'Enter a valid phone number (e.g. 712345678)')]
     public string $phoneNumber = '';
 
     public ?string $transactionId = null;
@@ -103,6 +103,10 @@ class CaptivePortal extends Component
     public function initiatePayment(): void
     {
         $this->validate();
+
+        // Normalize phone: strip leading 0, prepend 255
+        $phone = ltrim($this->phoneNumber, '0');
+        $this->phoneNumber = '255' . $phone;
 
         $plan = Plan::active()->find($this->selectedPlanId);
 

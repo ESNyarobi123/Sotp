@@ -69,9 +69,9 @@
                         >
                     </div>
                     @error('phoneNumber')
-                        <p class="mt-1 text-xs text-red-500">Enter a valid Tanzania phone number (255XXXXXXXXX)</p>
+                        <p class="mt-1 text-xs text-red-500">{{ $message }}</p>
                     @enderror
-                    <p class="mt-1 text-xs text-zinc-400">Format: 255712345678</p>
+                    <p class="mt-1 text-xs text-zinc-400">e.g. 712345678</p>
                 </div>
 
                 @if($errorMessage)
