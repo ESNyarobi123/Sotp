@@ -3,6 +3,7 @@
 namespace Database\Factories;
 
 use App\Models\Device;
+use App\Models\Workspace;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
 /**
@@ -18,11 +19,12 @@ class DeviceFactory extends Factory
     public function definition(): array
     {
         return [
+            'workspace_id' => Workspace::factory(),
             'name' => $this->faker->randomElement([
                 'Lobby AP', 'Reception AP', 'Conference Room', 'Rooftop Bar',
                 'Pool Area', 'Restaurant', 'Main Entrance', 'Floor 1 AP',
                 'Floor 2 AP', 'Garden Terrace',
-            ]) . ' - ' . $this->faker->company(),
+            ]).' - '.$this->faker->company(),
             'ap_mac' => strtoupper($this->faker->unique()->macAddress()),
             'omada_device_id' => $this->faker->optional(0.7)->uuid(),
             'site_name' => $this->faker->randomElement(['Main Branch', 'Downtown Office', 'Beach Resort', 'Airport Lounge']),

@@ -21,7 +21,7 @@
 </div>
 
 {{-- Content --}}
-<div class="w-full max-w-2xl">
+<div class="w-full max-w-5xl">
     @if (!empty($heading))
         <div class="mb-5">
             <h3 class="font-semibold text-smoke dark:text-ivory">{{ $heading }}</h3>

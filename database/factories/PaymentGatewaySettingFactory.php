@@ -3,6 +3,7 @@
 namespace Database\Factories;
 
 use App\Models\PaymentGatewaySetting;
+use App\Models\Workspace;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
 /**
@@ -20,6 +21,7 @@ class PaymentGatewaySettingFactory extends Factory
         $gateway = $this->faker->unique()->randomElement(['mpesa', 'airtel', 'tigo', 'card']);
 
         return [
+            'workspace_id' => Workspace::factory(),
             'gateway' => $gateway,
             'display_name' => match ($gateway) {
                 'mpesa' => 'M-Pesa',
@@ -34,7 +36,7 @@ class PaymentGatewaySettingFactory extends Factory
                     'consumer_secret' => 'your_consumer_secret',
                     'shortcode' => '174379',
                     'passkey' => 'your_passkey',
-                    'callback_url' => config('app.url') . '/api/mpesa/callback',
+                    'callback_url' => config('app.url').'/api/mpesa/callback',
                     'environment' => 'sandbox',
                 ],
                 default => [],

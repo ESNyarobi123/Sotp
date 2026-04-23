@@ -4,11 +4,13 @@ namespace App\Models;
 
 use Database\Factories\PaymentGatewaySettingFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 #[Fillable([
-    'gateway', 'display_name', 'is_active', 'config',
+    'workspace_id', 'gateway', 'display_name', 'is_active', 'config',
 ])]
 class PaymentGatewaySetting extends Model
 {
@@ -29,10 +31,10 @@ class PaymentGatewaySetting extends Model
     /**
      * Scope: active gateways only.
      *
-     * @param  \Illuminate\Database\Eloquent\Builder<static>  $query
-     * @return \Illuminate\Database\Eloquent\Builder<static>
+     * @param  Builder<static>  $query
+     * @return Builder<static>
      */
-    public function scopeActive(\Illuminate\Database\Eloquent\Builder $query): \Illuminate\Database\Eloquent\Builder
+    public function scopeActive(Builder $query): Builder
     {
         return $query->where('is_active', true);
     }
@@ -43,5 +45,13 @@ class PaymentGatewaySetting extends Model
     public function configValue(string $key, mixed $default = null): mixed
     {
         return data_get($this->config, $key, $default);
+    }
+
+    /**
+     * @return BelongsTo<Workspace, $this>
+     */
+    public function workspace(): BelongsTo
+    {
+        return $this->belongsTo(Workspace::class);
     }
 }

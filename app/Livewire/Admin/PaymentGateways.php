@@ -34,7 +34,12 @@ class PaymentGateways extends Component
      */
     public function mount(): void
     {
-        $settings = PaymentGatewaySetting::where('gateway', 'clickpesa')->first();
+        abort_unless((bool) auth()->user()?->isAdmin(), 403);
+
+        $settings = PaymentGatewaySetting::query()
+            ->whereNull('workspace_id')
+            ->where('gateway', 'clickpesa')
+            ->first();
 
         if ($settings) {
             $this->client_id = $settings->configValue('client_id', '');
@@ -60,7 +65,10 @@ class PaymentGateways extends Component
     {
         $this->validate();
 
-        $settings = PaymentGatewaySetting::firstOrNew(['gateway' => 'clickpesa']);
+        $settings = PaymentGatewaySetting::firstOrNew([
+            'gateway' => 'clickpesa',
+            'workspace_id' => null,
+        ]);
 
         $config = $settings->config ?? [];
         $config['client_id'] = $this->client_id;
@@ -75,6 +83,7 @@ class PaymentGateways extends Component
         }
 
         $settings->fill([
+            'workspace_id' => null,
             'display_name' => 'ClickPesa',
             'is_active' => $this->is_active,
             'config' => $config,
@@ -105,7 +114,7 @@ class PaymentGateways extends Component
         if ($result['success']) {
             Flux::toast(variant: 'success', text: 'ClickPesa API connected! Token generated successfully.');
         } else {
-            Flux::toast(variant: 'danger', text: 'Connection failed: ' . ($result['error'] ?? 'Unknown error'));
+            Flux::toast(variant: 'danger', text: 'Connection failed: '.($result['error'] ?? 'Unknown error'));
         }
     }
 
@@ -121,7 +130,9 @@ class PaymentGateways extends Component
     #[Computed]
     public function clickPesaSettings(): ?PaymentGatewaySetting
     {
-        return PaymentGatewaySetting::where('gateway', 'clickpesa')->first();
+        return PaymentGatewaySetting::query()
+            ->whereNull('workspace_id')
+            ->where('gateway', 'clickpesa')
+            ->first();
     }
-
 }

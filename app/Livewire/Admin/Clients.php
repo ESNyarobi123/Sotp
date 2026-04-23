@@ -2,8 +2,11 @@
 
 namespace App\Livewire\Admin;
 
+use App\Livewire\Admin\Concerns\UsesAuthWorkspace;
 use App\Models\GuestSession;
 use App\Models\Payment;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
+use Illuminate\Database\Eloquent\Collection;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Title;
 use Livewire\Attributes\Url;
@@ -13,6 +16,7 @@ use Livewire\WithPagination;
 #[Title('Clients')]
 class Clients extends Component
 {
+    use UsesAuthWorkspace;
     use WithPagination;
 
     #[Url]
@@ -45,20 +49,19 @@ class Clients extends Component
 
     /**
      * Paginated list of unique clients aggregated from guest_sessions.
-     *
-     * @return \Illuminate\Contracts\Pagination\LengthAwarePaginator
      */
     #[Computed]
-    public function clients(): \Illuminate\Contracts\Pagination\LengthAwarePaginator
+    public function clients(): LengthAwarePaginator
     {
         return GuestSession::query()
+            ->where('workspace_id', $this->authWorkspace()->id)
             ->select('client_mac')
             ->selectRaw('COUNT(*) as total_sessions')
             ->selectRaw('SUM(data_used_mb) as total_data_mb')
             ->selectRaw('MAX(time_started) as last_seen')
             ->selectRaw('MAX(CASE WHEN status = "active" THEN 1 ELSE 0 END) as has_active')
-            ->selectRaw('(SELECT SUM(p.amount) FROM payments p WHERE p.client_mac = guest_sessions.client_mac AND p.status = "completed") as total_spent')
-            ->groupBy('client_mac')
+            ->selectRaw('(SELECT SUM(p.amount) FROM payments p WHERE p.client_mac = guest_sessions.client_mac AND p.workspace_id = guest_sessions.workspace_id AND p.status = "completed") as total_spent')
+            ->groupBy('client_mac', 'workspace_id')
             ->when($this->search, fn ($q) => $q->where('client_mac', 'like', "%{$this->search}%"))
             ->when($this->statusFilter === 'active', fn ($q) => $q->havingRaw('MAX(CASE WHEN status = "active" THEN 1 ELSE 0 END) = 1'))
             ->when($this->statusFilter === 'inactive', fn ($q) => $q->havingRaw('MAX(CASE WHEN status = "active" THEN 1 ELSE 0 END) = 0'))
@@ -69,16 +72,17 @@ class Clients extends Component
     /**
      * All sessions for the client being viewed.
      *
-     * @return \Illuminate\Database\Eloquent\Collection<int, GuestSession>|null
+     * @return Collection<int, GuestSession>|null
      */
     #[Computed]
-    public function clientSessions(): ?\Illuminate\Database\Eloquent\Collection
+    public function clientSessions(): ?Collection
     {
         if (! $this->viewingMac) {
             return null;
         }
 
         return GuestSession::with('plan')
+            ->where('workspace_id', $this->authWorkspace()->id)
             ->where('client_mac', $this->viewingMac)
             ->latest('time_started')
             ->take(10)
@@ -88,16 +92,17 @@ class Clients extends Component
     /**
      * Recent payments for the client being viewed.
      *
-     * @return \Illuminate\Database\Eloquent\Collection<int, Payment>|null
+     * @return Collection<int, Payment>|null
      */
     #[Computed]
-    public function clientPayments(): ?\Illuminate\Database\Eloquent\Collection
+    public function clientPayments(): ?Collection
     {
         if (! $this->viewingMac) {
             return null;
         }
 
         return Payment::with('plan')
+            ->where('workspace_id', $this->authWorkspace()->id)
             ->where('client_mac', $this->viewingMac)
             ->latest()
             ->take(10)
@@ -107,14 +112,18 @@ class Clients extends Component
     #[Computed]
     public function totalClients(): int
     {
-        return GuestSession::distinct('client_mac')->count('client_mac');
+        return GuestSession::query()
+            ->where('workspace_id', $this->authWorkspace()->id)
+            ->distinct()
+            ->count('client_mac');
     }
 
     #[Computed]
     public function activeClients(): int
     {
         return GuestSession::active()
-            ->distinct('client_mac')
+            ->where('workspace_id', $this->authWorkspace()->id)
+            ->distinct()
             ->count('client_mac');
     }
 
@@ -122,7 +131,7 @@ class Clients extends Component
     public function totalRevenueFromClients(): string
     {
         return number_format(
-            Payment::completed()->sum('amount'),
+            Payment::completed()->where('workspace_id', $this->authWorkspace()->id)->sum('amount'),
             0
         );
     }

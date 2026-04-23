@@ -8,6 +8,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Date;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\RateLimiter;
+use Illuminate\Support\Facades\URL;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Validation\Rules\Password;
 
@@ -50,6 +51,10 @@ class AppServiceProvider extends ServiceProvider
                 ->uncompromised()
             : null,
         );
+
+        if (app()->isProduction() && str_starts_with((string) config('app.url'), 'https://')) {
+            URL::forceScheme('https');
+        }
     }
 
     /**
@@ -76,7 +81,7 @@ class AppServiceProvider extends ServiceProvider
 
         // Login: 5 attempts/15 minutes with exponential backoff
         RateLimiter::for('login', function (Request $request) {
-            $key = strtolower($request->input('email', '')) . '|' . $request->ip();
+            $key = strtolower($request->input('email', '')).'|'.$request->ip();
 
             return Limit::perMinutes(15, 5)->by($key)->response(function (Request $request, array $headers) {
                 $seconds = $headers['Retry-After'] ?? 60;
@@ -95,6 +100,11 @@ class AppServiceProvider extends ServiceProvider
         // Omada API calls: 30/min (applied in OmadaService)
         RateLimiter::for('omada-api', function () {
             return Limit::perMinute(30)->by('omada-controller');
+        });
+
+        // Settings / profile: tighter burst control per user
+        RateLimiter::for('settings', function (Request $request) {
+            return Limit::perMinute(45)->by($request->user()?->id ?: $request->ip());
         });
     }
 }

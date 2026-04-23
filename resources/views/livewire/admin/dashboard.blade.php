@@ -1,18 +1,119 @@
-<div>
+<div class="p-4 sm:p-6 lg:p-8">
     {{-- Page Header --}}
-    <div class="mb-6 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-            <h1 class="text-2xl font-bold text-smoke dark:text-ivory">Dashboard</h1>
-            <p class="text-sm text-smoke/50 dark:text-ivory/50">Welcome back — here's what's happening with your WiFi network</p>
+    <div class="mb-8 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+        <div class="max-w-2xl space-y-1">
+            <div class="flex items-center gap-2.5">
+                <div class="grid size-10 place-items-center rounded-xl bg-gradient-to-br from-terra/20 to-terra/5 dark:from-terra/25 dark:to-terra/10">
+                    <flux:icon name="squares-2x2" class="size-5 text-terra dark:text-terra-light" />
+                </div>
+                <h1 class="text-2xl font-bold tracking-tight text-smoke dark:text-ivory">{{ __('Dashboard') }}</h1>
+            </div>
+            <p class="text-xs text-smoke/50 dark:text-ivory/40">{{ __('A quick read on revenue, sessions, and your access points — scoped to this workspace only.') }}</p>
         </div>
-        <div class="flex items-center gap-2 text-xs text-smoke/50 dark:text-ivory/50">
-            <flux:icon name="clock" class="size-4" />
-            <span>Last updated: {{ now()->format('H:i') }}</span>
+        <div class="flex shrink-0 items-center gap-2 rounded-xl border border-ivory-darker/50 bg-white/60 px-3 py-2 text-xs text-smoke/55 shadow-sm backdrop-blur-sm dark:border-smoke-light/50 dark:bg-smoke-light/40 dark:text-ivory/50">
+            <flux:icon name="clock" class="size-4 text-terra/80 dark:text-terra-light/90" />
+            <span>{{ __('Updated') }} {{ now()->format('H:i') }}</span>
         </div>
     </div>
 
+    {{-- ═══════════ Platform Admin Overview (cross-workspace) ═══════════ --}}
+    @if($this->isAdmin)
+        <div class="mb-6 rounded-2xl border border-terra/20 bg-gradient-to-br from-terra/5 via-transparent to-terra/5 p-5 shadow-sm dark:border-terra/15 dark:from-terra/10 dark:to-terra/5">
+            <div class="mb-4 flex items-center gap-2">
+                <div class="grid size-7 place-items-center rounded-lg bg-terra/15">
+                    <flux:icon name="shield-check" class="size-4 text-terra" />
+                </div>
+                <span class="text-xs font-bold uppercase tracking-[0.15em] text-terra">Platform Admin</span>
+            </div>
+            <div class="grid gap-3 sm:grid-cols-3 lg:grid-cols-6">
+                <div class="rounded-2xl border border-ivory-darker/40 bg-white/70 p-3.5 dark:border-smoke-light/40 dark:bg-smoke-light/40">
+                    <div class="text-[10px] font-semibold uppercase tracking-wider text-smoke/45 dark:text-ivory/35">Users</div>
+                    <div class="mt-1 text-xl font-bold text-smoke dark:text-ivory">{{ $this->totalPlatformUsers }}</div>
+                </div>
+                <div class="rounded-2xl border border-ivory-darker/40 bg-white/70 p-3.5 dark:border-smoke-light/40 dark:bg-smoke-light/40">
+                    <div class="text-[10px] font-semibold uppercase tracking-wider text-smoke/45 dark:text-ivory/35">Workspaces</div>
+                    <div class="mt-1 text-xl font-bold text-smoke dark:text-ivory">{{ $this->totalPlatformWorkspaces }}</div>
+                    @if($this->suspendedWorkspaces > 0)
+                        <div class="mt-0.5 text-[10px] font-medium text-red-500">{{ $this->suspendedWorkspaces }} suspended</div>
+                    @endif
+                </div>
+                <div class="rounded-2xl border border-ivory-darker/40 bg-white/70 p-3.5 dark:border-smoke-light/40 dark:bg-smoke-light/40">
+                    <div class="text-[10px] font-semibold uppercase tracking-wider text-smoke/45 dark:text-ivory/35">Revenue Today</div>
+                    <div class="mt-1 text-xl font-bold text-terra">{{ $this->platformRevenueToday }} <span class="text-xs font-normal text-smoke/35">TZS</span></div>
+                </div>
+                <div class="rounded-2xl border border-ivory-darker/40 bg-white/70 p-3.5 dark:border-smoke-light/40 dark:bg-smoke-light/40">
+                    <div class="text-[10px] font-semibold uppercase tracking-wider text-smoke/45 dark:text-ivory/35">Month Revenue</div>
+                    <div class="mt-1 text-xl font-bold text-terra">{{ $this->platformRevenueMonth }} <span class="text-xs font-normal text-smoke/35">TZS</span></div>
+                </div>
+                <div class="rounded-2xl border border-emerald-500/20 bg-emerald-500/5 p-3.5 dark:border-emerald-500/10">
+                    <div class="flex items-center gap-1.5">
+                        <span class="size-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                        <span class="text-[10px] font-semibold uppercase tracking-wider text-emerald-600/70 dark:text-emerald-400/60">Sessions</span>
+                    </div>
+                    <div class="mt-1 text-xl font-bold text-smoke dark:text-ivory">{{ $this->platformActiveSessions }}</div>
+                    <div class="text-[10px] text-smoke/35 dark:text-ivory/30">active now</div>
+                </div>
+                <div class="rounded-2xl border border-ivory-darker/40 bg-white/70 p-3.5 dark:border-smoke-light/40 dark:bg-smoke-light/40">
+                    <div class="text-[10px] font-semibold uppercase tracking-wider text-smoke/45 dark:text-ivory/35">Devices</div>
+                    <div class="mt-1 text-xl font-bold text-smoke dark:text-ivory">{{ $this->platformOnlineDevices }} <span class="text-sm font-normal text-smoke/35">/ {{ $this->platformTotalDevices }}</span></div>
+                </div>
+            </div>
+
+            {{-- Top Workspaces Mini Table --}}
+            @if($this->topWorkspaces->isNotEmpty())
+                <div class="mt-3 rounded-xl border border-ivory-darker/40 bg-white/40 dark:border-smoke-light/30 dark:bg-smoke/30">
+                    <div class="px-3 py-2 text-[10px] font-semibold uppercase tracking-wider text-smoke/40 dark:text-ivory/35">Top Workspaces by Revenue</div>
+                    <div class="divide-y divide-ivory-darker/30 dark:divide-smoke-light/20">
+                        @foreach($this->topWorkspaces as $ws)
+                            <div class="flex items-center justify-between gap-3 px-3 py-2 text-xs">
+                                <div class="min-w-0 flex-1">
+                                    <span class="font-medium text-smoke dark:text-ivory">{{ $ws->brand_name }}</span>
+                                    <span class="text-smoke/40 dark:text-ivory/30"> &middot; {{ $ws->user?->name ?? '—' }}</span>
+                                </div>
+                                <div class="flex items-center gap-3 shrink-0 text-smoke/60 dark:text-ivory/50">
+                                    <span>{{ $ws->active_sessions_count ?? 0 }} live</span>
+                                    <span>{{ $ws->devices_count ?? 0 }} APs</span>
+                                    <span class="font-semibold text-terra">{{ number_format((float) ($ws->total_revenue ?? 0), 0) }} TZS</span>
+                                </div>
+                            </div>
+                        @endforeach
+                    </div>
+                </div>
+            @endif
+
+            <div class="mt-4 flex flex-wrap gap-2">
+                <a href="{{ route('platform.users') }}" wire:navigate class="inline-flex items-center gap-1.5 rounded-xl border border-terra/15 bg-terra/8 px-3 py-1.5 text-xs font-medium text-terra transition-all duration-200 hover:bg-terra/15 hover:shadow-sm">
+                    <flux:icon name="users" class="size-3.5" /> Manage Users
+                </a>
+                <a href="{{ route('platform.workspaces') }}" wire:navigate class="inline-flex items-center gap-1.5 rounded-xl border border-terra/15 bg-terra/8 px-3 py-1.5 text-xs font-medium text-terra transition-all duration-200 hover:bg-terra/15 hover:shadow-sm">
+                    <flux:icon name="building-office" class="size-3.5" /> Manage Workspaces
+                </a>
+                <a href="{{ route('platform.payments') }}" wire:navigate class="inline-flex items-center gap-1.5 rounded-xl border border-terra/15 bg-terra/8 px-3 py-1.5 text-xs font-medium text-terra transition-all duration-200 hover:bg-terra/15 hover:shadow-sm">
+                    <flux:icon name="banknotes" class="size-3.5" /> All Payments
+                </a>
+            </div>
+        </div>
+    @endif
+
+    @if(! $this->workspace->isOmadaReady())
+        <x-workspace.provisioning-status
+            :workspace="$this->workspace"
+            :link-href="route('admin.omada')"
+            link-label="Open Omada Integration"
+            class="mb-6"
+        />
+    @else
+        <flux:callout variant="success" icon="check-circle" class="mb-6">
+            <flux:callout.heading>{{ $this->workspace->brand_name }}</flux:callout.heading>
+            <flux:callout.text>
+                {{ __('Guest portal:') }}
+                <flux:link href="{{ $this->workspace->portalUrl() }}" target="_blank" class="font-medium">{{ $this->workspace->portalUrl() }}</flux:link>
+            </flux:callout.text>
+        </flux:callout>
+    @endif
+
     {{-- Stats Cards (poll only this section) --}}
-    <div wire:poll.30s="pollDashboard" class="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+    <div wire:poll.30s="pollDashboard" class="grid gap-4 sm:grid-cols-2 xl:grid-cols-6">
         {{-- Online Users --}}
         <flux:card class="group relative overflow-hidden rounded-2xl border border-ivory-darker/70 bg-white/70 shadow-sm backdrop-blur dark:border-smoke-light/70 dark:bg-smoke-light/40">
             <div class="flex items-start justify-between gap-4">
@@ -25,6 +126,22 @@
                     <div class="absolute -inset-2 rounded-2xl bg-terra/10 blur-xl transition group-hover:bg-terra/15 dark:bg-terra/15 dark:group-hover:bg-terra/20"></div>
                     <div class="relative grid size-11 place-items-center rounded-2xl border border-ivory-darker/70 bg-ivory/70 dark:border-smoke-light/70 dark:bg-smoke">
                         <flux:icon name="users" class="size-6 text-terra dark:text-terra-light" />
+                    </div>
+                </div>
+            </div>
+        </flux:card>
+
+        <flux:card class="group relative overflow-hidden rounded-2xl border border-ivory-darker/70 bg-white/70 shadow-sm backdrop-blur dark:border-smoke-light/70 dark:bg-smoke-light/40">
+            <div class="flex items-start justify-between gap-4">
+                <div>
+                    <p class="text-xs font-semibold uppercase tracking-wider text-smoke/50 dark:text-ivory/50">Available Balance</p>
+                    <div class="mt-1 text-2xl font-bold text-smoke dark:text-ivory">{{ $this->availableWalletBalance }} <span class="text-xs font-normal text-smoke/50">TZS</span></div>
+                    <p class="mt-0.5 text-xs text-smoke/50 dark:text-ivory/40">Wallet credits ready for withdrawal workflows</p>
+                </div>
+                <div class="relative">
+                    <div class="absolute -inset-2 rounded-2xl bg-terra/10 blur-xl transition group-hover:bg-terra/15 dark:bg-terra/15 dark:group-hover:bg-terra/20"></div>
+                    <div class="relative grid size-11 place-items-center rounded-2xl border border-ivory-darker/70 bg-ivory/70 dark:border-smoke-light/70 dark:bg-smoke">
+                        <flux:icon name="banknotes" class="size-6 text-terra dark:text-terra-light" />
                     </div>
                 </div>
             </div>
@@ -202,9 +319,9 @@
                             <th class="pb-2 text-right">Status</th>
                         </tr>
                     </thead>
-                    <tbody class="divide-y divide-ivory-darker dark:divide-smoke-light">
+                    <tbody class="divide-y divide-ivory-darker/60 dark:divide-smoke-light/40">
                         @forelse($this->recentSessions as $session)
-                            <tr>
+                            <tr class="transition-colors duration-150 hover:bg-ivory/30 dark:hover:bg-smoke-light/15">
                                 <td class="py-2 font-mono text-xs text-smoke dark:text-ivory">{{ $session->client_mac }}</td>
                                 <td class="py-2 text-xs text-smoke/80 dark:text-ivory/70">{{ $session->plan?->name ?? '—' }}</td>
                                 <td class="py-2 text-xs text-smoke/80 dark:text-ivory/70">{{ $session->isActive() ? ($session->timeRemaining() ?? 'Unlimited') : '—' }}</td>
@@ -247,9 +364,9 @@
                             <th class="pb-2 text-right">Status</th>
                         </tr>
                     </thead>
-                    <tbody class="divide-y divide-ivory-darker dark:divide-smoke-light">
+                    <tbody class="divide-y divide-ivory-darker/60 dark:divide-smoke-light/40">
                         @forelse($this->recentPayments as $payment)
-                            <tr>
+                            <tr class="transition-colors duration-150 hover:bg-ivory/30 dark:hover:bg-smoke-light/15">
                                 <td class="py-2 text-xs text-smoke dark:text-ivory">{{ $payment->phone_number }}</td>
                                 <td class="py-2 text-xs font-bold text-smoke dark:text-ivory">{{ number_format($payment->amount, 0) }} <span class="font-normal text-smoke/50">TZS</span></td>
                                 <td class="py-2 text-xs text-smoke/80 dark:text-ivory/70">{{ $payment->plan?->name ?? '—' }}</td>

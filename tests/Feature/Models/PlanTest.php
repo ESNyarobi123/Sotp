@@ -7,6 +7,8 @@ use App\Models\Payment;
 use App\Models\PaymentGatewaySetting;
 use App\Models\Plan;
 use App\Models\User;
+use App\Models\Workspace;
+use Spatie\Permission\Models\Role;
 
 test('plan factory creates valid model', function () {
     $plan = Plan::factory()->create();
@@ -116,7 +118,7 @@ test('payment gateway setting encrypts config', function () {
 });
 
 test('user has admin role check', function () {
-    \Spatie\Permission\Models\Role::firstOrCreate(['name' => 'admin', 'guard_name' => 'web']);
+    Role::firstOrCreate(['name' => 'admin', 'guard_name' => 'web']);
 
     $admin = User::factory()->create();
     $admin->assignRole('admin');
@@ -125,4 +127,48 @@ test('user has admin role check', function () {
 
     expect($admin->isAdmin())->toBeTrue()
         ->and($guest->isAdmin())->toBeFalse();
+});
+
+test('workspace provisioning summary reports ready state', function () {
+    $workspace = Workspace::factory()->omadaSite('site-123')->create();
+
+    expect($workspace->provisioningSummary())
+        ->status->toBe('ready')
+        ->badge_color->toBe('emerald')
+        ->callout_variant->toBe('success');
+});
+
+test('workspace provisioning summary reports failed state', function () {
+    $workspace = Workspace::factory()->pending()->create([
+        'provisioning_status' => 'failed',
+        'provisioning_error' => 'Controller temporarily unavailable',
+    ]);
+
+    expect($workspace->provisioningSummary())
+        ->status->toBe('failed')
+        ->badge_color->toBe('red')
+        ->action_label->toBe('Retry provisioning');
+});
+
+test('workspace provisioning error summary classifies retryable controller failures', function () {
+    $workspace = Workspace::factory()->pending()->create([
+        'provisioning_status' => 'failed',
+        'provisioning_error' => 'Controller temporarily unavailable',
+    ]);
+
+    $summary = $workspace->provisioningErrorSummary();
+
+    expect($summary)->not->toBeNull();
+    expect($summary['category'])->toBe('controller_unavailable');
+    expect($summary['retryable'])->toBeTrue();
+});
+
+test('workspace provisioning summary reports provisioning state', function () {
+    $workspace = Workspace::factory()->pending()->create([
+        'provisioning_status' => 'provisioning',
+    ]);
+
+    expect($workspace->provisioningSummary())
+        ->status->toBe('provisioning')
+        ->icon->toBe('exclamation-triangle');
 });

@@ -7,7 +7,12 @@ use Livewire\Livewire;
 test('profile page is displayed', function () {
     $this->actingAs($user = User::factory()->create());
 
-    $this->get('/settings/profile')->assertOk();
+    $this->get('/settings/profile')
+        ->assertOk()
+        ->assertSee('Account profile')
+        ->assertSee('Overview')
+        ->assertSee('Tips')
+        ->assertSee($user->workspace->brand_name);
 });
 
 test('profile information can be updated', function () {

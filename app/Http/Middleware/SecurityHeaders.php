@@ -28,8 +28,17 @@ class SecurityHeaders
         // Referrer policy — send origin only on cross-origin
         $response->headers->set('Referrer-Policy', 'strict-origin-when-cross-origin');
 
-        // Permissions policy — disable unused browser features
-        $response->headers->set('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=()');
+        // Permissions policy — disable powerful APIs the app does not use
+        $response->headers->set(
+            'Permissions-Policy',
+            'accelerometer=(), ambient-light-sensor=(), autoplay=(), battery=(), camera=(), display-capture=(), document-domain=(), encrypted-media=(), execution-while-not-rendered=(), execution-while-out-of-viewport=(), fullscreen=(self), gamepad=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), midi=(), payment=(), picture-in-picture=(), publickey-credentials-get=(self), speaker=(), usb=(), web-share=(), xr-spatial-tracking=()',
+        );
+
+        // Block Flash / cross-domain policy files (legacy)
+        $response->headers->set('X-Permitted-Cross-Domain-Policies', 'none');
+
+        // Reduce information leaked to third parties when following links out
+        $response->headers->set('Cross-Origin-Opener-Policy', 'same-origin-allow-popups');
 
         // HSTS — enforce HTTPS in production (1 year, include subdomains)
         if (app()->isProduction()) {
@@ -59,6 +68,10 @@ class SecurityHeaders
             "frame-ancestors 'self'",
             "base-uri 'self'",
             "form-action 'self'",
+            "object-src 'none'",
+            "worker-src 'self'",
+            "manifest-src 'self'",
+            'upgrade-insecure-requests',
         ];
 
         return implode('; ', $directives);

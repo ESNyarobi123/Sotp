@@ -6,7 +6,7 @@ use App\Models\User;
 use Livewire\Livewire;
 
 test('payment gateways page renders', function () {
-    $user = User::factory()->create();
+    $user = User::factory()->admin()->create();
 
     Livewire::actingAs($user)
         ->test(PaymentGateways::class)
@@ -16,7 +16,7 @@ test('payment gateways page renders', function () {
 });
 
 test('can save clickpesa settings', function () {
-    $user = User::factory()->create();
+    $user = User::factory()->admin()->create();
 
     Livewire::actingAs($user)
         ->test(PaymentGateways::class)
@@ -26,7 +26,7 @@ test('can save clickpesa settings', function () {
         ->set('webhook_url', 'https://example.com/api/clickpesa/webhook')
         ->call('saveClickPesa');
 
-    $settings = PaymentGatewaySetting::where('gateway', 'clickpesa')->first();
+    $settings = PaymentGatewaySetting::where('gateway', 'clickpesa')->whereNull('workspace_id')->first();
     expect($settings)->not->toBeNull();
     expect($settings->configValue('client_id'))->toBe('TEST_CLIENT_ID');
     expect($settings->configValue('api_key'))->toBe('test_api_key_123');
@@ -34,7 +34,7 @@ test('can save clickpesa settings', function () {
 });
 
 test('clickpesa settings require client_id', function () {
-    $user = User::factory()->create();
+    $user = User::factory()->admin()->create();
 
     Livewire::actingAs($user)
         ->test(PaymentGateways::class)
@@ -45,8 +45,9 @@ test('clickpesa settings require client_id', function () {
 });
 
 test('existing clickpesa settings are loaded on mount', function () {
-    $user = User::factory()->create();
+    $user = User::factory()->admin()->create();
     PaymentGatewaySetting::create([
+        'workspace_id' => null,
         'gateway' => 'clickpesa',
         'display_name' => 'ClickPesa',
         'is_active' => true,
@@ -60,7 +61,7 @@ test('existing clickpesa settings are loaded on mount', function () {
 });
 
 test('shows not configured badge when no settings', function () {
-    $user = User::factory()->create();
+    $user = User::factory()->admin()->create();
 
     Livewire::actingAs($user)
         ->test(PaymentGateways::class)
@@ -68,8 +69,9 @@ test('shows not configured badge when no settings', function () {
 });
 
 test('shows active badge when configured', function () {
-    $user = User::factory()->create();
+    $user = User::factory()->admin()->create();
     PaymentGatewaySetting::create([
+        'workspace_id' => null,
         'gateway' => 'clickpesa',
         'display_name' => 'ClickPesa',
         'is_active' => true,

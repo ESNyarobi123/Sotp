@@ -1,3 +1,7 @@
 <x-layouts::app :title="__('Dashboard')">
-    <livewire:admin.dashboard />
+    @if(auth()->user()->isAdmin())
+        <livewire:admin.dashboard />
+    @else
+        <livewire:customer.dashboard />
+    @endif
 </x-layouts::app>

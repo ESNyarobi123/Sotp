@@ -4,12 +4,13 @@ namespace App\Models;
 
 use Database\Factories\PaymentFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 #[Fillable([
-    'transaction_id', 'phone_number', 'amount', 'currency',
+    'workspace_id', 'transaction_id', 'phone_number', 'amount', 'currency',
     'payment_method', 'status', 'plan_id', 'guest_session_id',
     'client_mac', 'ap_mac', 'mpesa_checkout_request_id',
     'mpesa_receipt_number', 'clickpesa_order_id',
@@ -20,6 +21,15 @@ class Payment extends Model
 {
     /** @use HasFactory<PaymentFactory> */
     use HasFactory;
+
+    protected static function booted(): void
+    {
+        static::creating(function (Payment $payment): void {
+            if ($payment->workspace_id === null && $payment->plan_id) {
+                $payment->workspace_id = Plan::query()->whereKey($payment->plan_id)->value('workspace_id');
+            }
+        });
+    }
 
     /**
      * @return array<string, string>
@@ -50,12 +60,20 @@ class Payment extends Model
     }
 
     /**
+     * @return BelongsTo<Workspace, $this>
+     */
+    public function workspace(): BelongsTo
+    {
+        return $this->belongsTo(Workspace::class);
+    }
+
+    /**
      * Scope: completed payments only.
      *
-     * @param  \Illuminate\Database\Eloquent\Builder<static>  $query
-     * @return \Illuminate\Database\Eloquent\Builder<static>
+     * @param  Builder<static>  $query
+     * @return Builder<static>
      */
-    public function scopeCompleted(\Illuminate\Database\Eloquent\Builder $query): \Illuminate\Database\Eloquent\Builder
+    public function scopeCompleted(Builder $query): Builder
     {
         return $query->where('status', 'completed');
     }
@@ -63,10 +81,10 @@ class Payment extends Model
     /**
      * Scope: pending payments only.
      *
-     * @param  \Illuminate\Database\Eloquent\Builder<static>  $query
-     * @return \Illuminate\Database\Eloquent\Builder<static>
+     * @param  Builder<static>  $query
+     * @return Builder<static>
      */
-    public function scopePending(\Illuminate\Database\Eloquent\Builder $query): \Illuminate\Database\Eloquent\Builder
+    public function scopePending(Builder $query): Builder
     {
         return $query->where('status', 'pending');
     }
@@ -84,6 +102,6 @@ class Payment extends Model
      */
     public function formattedAmount(): string
     {
-        return number_format($this->amount, 0) . ' ' . $this->currency;
+        return number_format($this->amount, 0).' '.$this->currency;
     }
 }

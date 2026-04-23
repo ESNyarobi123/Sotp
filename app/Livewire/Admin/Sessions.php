@@ -3,9 +3,11 @@
 namespace App\Livewire\Admin;
 
 use App\Events\SessionDisconnected;
+use App\Livewire\Admin\Concerns\UsesAuthWorkspace;
 use App\Models\GuestSession;
 use App\Services\OmadaService;
 use Flux\Flux;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\On;
 use Livewire\Attributes\Title;
@@ -16,6 +18,7 @@ use Livewire\WithPagination;
 #[Title('Sessions')]
 class Sessions extends Component
 {
+    use UsesAuthWorkspace;
     use WithPagination;
 
     #[Url]
@@ -61,7 +64,10 @@ class Sessions extends Component
      */
     public function disconnect(int $sessionId): void
     {
-        $session = GuestSession::findOrFail($sessionId);
+        $session = GuestSession::query()
+            ->where('workspace_id', $this->authWorkspace()->id)
+            ->whereKey($sessionId)
+            ->firstOrFail();
 
         if ($session->status !== 'active') {
             Flux::toast(variant: 'danger', text: 'Session is not active.');
@@ -70,7 +76,7 @@ class Sessions extends Component
         }
 
         $omada = app(OmadaService::class);
-        $result = $omada->unauthorizeClient($session->client_mac);
+        $result = $omada->unauthorizeClient($session->client_mac, $this->authWorkspace());
 
         $session->update([
             'status' => 'disconnected',
@@ -83,7 +89,7 @@ class Sessions extends Component
         if ($result['success']) {
             Flux::toast(variant: 'success', text: "Client {$session->client_mac} disconnected from WiFi.");
         } else {
-            Flux::toast(variant: 'warning', text: "Marked disconnected locally. Omada: " . ($result['error'] ?? 'Could not reach controller'));
+            Flux::toast(variant: 'warning', text: 'Marked disconnected locally. Omada: '.($result['error'] ?? 'Could not reach controller'));
         }
     }
 
@@ -114,9 +120,10 @@ class Sessions extends Component
     }
 
     #[Computed]
-    public function sessions(): \Illuminate\Contracts\Pagination\LengthAwarePaginator
+    public function sessions(): LengthAwarePaginator
     {
         return GuestSession::with('plan')
+            ->where('workspace_id', $this->authWorkspace()->id)
             ->when($this->search, fn ($q) => $q->where(function ($q) {
                 $q->where('client_mac', 'like', "%{$this->search}%")
                     ->orWhere('ip_address', 'like', "%{$this->search}%")
@@ -132,31 +139,33 @@ class Sessions extends Component
     public function viewingSession(): ?GuestSession
     {
         return $this->viewingSessionId
-            ? GuestSession::with('plan', 'payments')->find($this->viewingSessionId)
+            ? GuestSession::with('plan', 'payments')
+                ->where('workspace_id', $this->authWorkspace()->id)
+                ->find($this->viewingSessionId)
             : null;
     }
 
     #[Computed]
     public function activeCount(): int
     {
-        return GuestSession::active()->count();
+        return GuestSession::active()->where('workspace_id', $this->authWorkspace()->id)->count();
     }
 
     #[Computed]
     public function expiredCount(): int
     {
-        return GuestSession::where('status', 'expired')->count();
+        return GuestSession::where('workspace_id', $this->authWorkspace()->id)->where('status', 'expired')->count();
     }
 
     #[Computed]
     public function disconnectedCount(): int
     {
-        return GuestSession::where('status', 'disconnected')->count();
+        return GuestSession::where('workspace_id', $this->authWorkspace()->id)->where('status', 'disconnected')->count();
     }
 
     #[Computed]
     public function totalCount(): int
     {
-        return GuestSession::count();
+        return GuestSession::where('workspace_id', $this->authWorkspace()->id)->count();
     }
 }

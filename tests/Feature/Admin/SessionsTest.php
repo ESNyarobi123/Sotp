@@ -2,23 +2,26 @@
 
 use App\Livewire\Admin\Sessions;
 use App\Models\GuestSession;
+use App\Models\Plan;
 use App\Models\User;
 use Livewire\Livewire;
 
 test('sessions page shows session data', function () {
     $user = User::factory()->create();
-    $session = GuestSession::factory()->active()->create();
+    $plan = Plan::factory()->for($user->workspace)->create();
+    $session = GuestSession::factory()->active()->create(['plan_id' => $plan->id]);
 
     Livewire::actingAs($user)
         ->test(Sessions::class)
         ->assertSee($session->client_mac)
-        ->assertSee('Live Sessions');
+        ->assertSee('Sessions');
 });
 
 test('sessions page can filter by status', function () {
     $user = User::factory()->create();
-    $active = GuestSession::factory()->active()->create();
-    $expired = GuestSession::factory()->expired()->create();
+    $plan = Plan::factory()->for($user->workspace)->create();
+    $active = GuestSession::factory()->active()->create(['plan_id' => $plan->id]);
+    $expired = GuestSession::factory()->expired()->create(['plan_id' => $plan->id]);
 
     Livewire::actingAs($user)
         ->test(Sessions::class)
@@ -29,8 +32,9 @@ test('sessions page can filter by status', function () {
 
 test('sessions page can search by MAC', function () {
     $user = User::factory()->create();
-    $target = GuestSession::factory()->active()->create(['client_mac' => 'AA:BB:CC:DD:EE:FF']);
-    $other = GuestSession::factory()->active()->create(['client_mac' => '11:22:33:44:55:66']);
+    $plan = Plan::factory()->for($user->workspace)->create();
+    $target = GuestSession::factory()->active()->create(['plan_id' => $plan->id, 'client_mac' => 'AA:BB:CC:DD:EE:FF']);
+    $other = GuestSession::factory()->active()->create(['plan_id' => $plan->id, 'client_mac' => '11:22:33:44:55:66']);
 
     Livewire::actingAs($user)
         ->test(Sessions::class)
@@ -41,7 +45,8 @@ test('sessions page can search by MAC', function () {
 
 test('sessions page can disconnect an active session', function () {
     $user = User::factory()->create();
-    $session = GuestSession::factory()->active()->create();
+    $plan = Plan::factory()->for($user->workspace)->create();
+    $session = GuestSession::factory()->active()->create(['plan_id' => $plan->id]);
 
     Livewire::actingAs($user)
         ->test(Sessions::class)
@@ -53,7 +58,8 @@ test('sessions page can disconnect an active session', function () {
 
 test('sessions page cannot disconnect a non-active session', function () {
     $user = User::factory()->create();
-    $session = GuestSession::factory()->expired()->create();
+    $plan = Plan::factory()->for($user->workspace)->create();
+    $session = GuestSession::factory()->expired()->create(['plan_id' => $plan->id]);
 
     Livewire::actingAs($user)
         ->test(Sessions::class)
@@ -64,8 +70,9 @@ test('sessions page cannot disconnect a non-active session', function () {
 
 test('sessions page shows correct status counts', function () {
     $user = User::factory()->create();
-    GuestSession::factory()->active()->count(3)->create();
-    GuestSession::factory()->expired()->count(2)->create();
+    $plan = Plan::factory()->for($user->workspace)->create();
+    GuestSession::factory()->active()->count(3)->create(['plan_id' => $plan->id]);
+    GuestSession::factory()->expired()->count(2)->create(['plan_id' => $plan->id]);
 
     $component = Livewire::actingAs($user)->test(Sessions::class);
 

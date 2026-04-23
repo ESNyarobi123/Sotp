@@ -9,6 +9,7 @@ use App\Models\GuestSession;
 use App\Models\Payment;
 use App\Services\ClickPesaService;
 use App\Services\OmadaService;
+use App\Services\WalletService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
@@ -17,6 +18,7 @@ class ClickPesaWebhookController extends Controller
 {
     public function __construct(
         private ClickPesaService $clickPesa,
+        private WalletService $wallets,
     ) {}
 
     /**
@@ -32,9 +34,14 @@ class ClickPesaWebhookController extends Controller
 
         Log::info('ClickPesa webhook received', ['event' => $event, 'orderReference' => $data['orderReference'] ?? null]);
 
-        // Validate checksum if present
-        if (isset($payload['checksum'])) {
-            if (! $this->clickPesa->validateWebhookChecksum($payload, $payload['checksum'])) {
+        // Validate checksum if present (scoped to workspace when order reference resolves)
+        if (isset($payload['checksum']) && ! empty($data['orderReference'])) {
+            $payment = Payment::where('transaction_id', $data['orderReference'])->first();
+            $clickPesa = $payment?->workspace
+                ? $this->clickPesa->forWorkspace($payment->workspace)
+                : $this->clickPesa;
+
+            if (! $clickPesa->validateWebhookChecksum($payload, $payload['checksum'])) {
                 Log::warning('ClickPesa webhook checksum validation failed', ['event' => $event]);
 
                 return response()->json(['error' => 'Invalid checksum'], 403);
@@ -96,6 +103,8 @@ class ClickPesaWebhookController extends Controller
             'amount' => $data['collectedAmount'] ?? null,
         ]);
 
+        $this->wallets->creditCompletedPayment($payment);
+
         // Create guest session and authorize on Omada
         $this->provisionAccess($payment);
 
@@ -127,6 +136,7 @@ class ClickPesaWebhookController extends Controller
         $metadata = $payment->metadata ?? [];
 
         $session = GuestSession::create([
+            'workspace_id' => $payment->workspace_id,
             'client_mac' => $payment->client_mac ?? 'unknown',
             'ap_mac' => $payment->ap_mac ?? 'unknown',
             'ip_address' => $metadata['ip_address'] ?? null,
@@ -156,7 +166,7 @@ class ClickPesaWebhookController extends Controller
                         'apMac' => $payment->ap_mac ?? '',
                         'ssid' => $metadata['ssid'] ?? '',
                         'minutes' => $durationMinutes,
-                    ]);
+                    ], $payment->workspace);
 
                     if ($result['success']) {
                         $session->update(['omada_auth_id' => $result['authId']]);

@@ -2,8 +2,10 @@
 
 namespace App\Livewire\Admin;
 
+use App\Livewire\Admin\Concerns\UsesAuthWorkspace;
 use App\Models\Plan;
 use Flux\Flux;
+use Illuminate\Database\Eloquent\Collection;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Title;
 use Livewire\Attributes\Validate;
@@ -12,6 +14,8 @@ use Livewire\Component;
 #[Title('Plans / Packages')]
 class Plans extends Component
 {
+    use UsesAuthWorkspace;
+
     public bool $showForm = false;
 
     public ?int $editingPlanId = null;
@@ -54,7 +58,10 @@ class Plans extends Component
      */
     public function edit(int $planId): void
     {
-        $plan = Plan::findOrFail($planId);
+        $plan = Plan::query()
+            ->where('workspace_id', $this->authWorkspace()->id)
+            ->whereKey($planId)
+            ->firstOrFail();
 
         $this->editingPlanId = $plan->id;
         $this->name = $plan->name;
@@ -99,10 +106,24 @@ class Plans extends Component
         ];
 
         if ($this->editingPlanId) {
-            Plan::findOrFail($this->editingPlanId)->update($data);
+            Plan::query()
+                ->where('workspace_id', $this->authWorkspace()->id)
+                ->whereKey($this->editingPlanId)
+                ->firstOrFail()
+                ->update($data);
             Flux::toast(variant: 'success', text: 'Plan updated successfully.');
         } else {
-            $data['sort_order'] = Plan::max('sort_order') + 1;
+            $workspace = $this->authWorkspace();
+            $currentCount = Plan::where('workspace_id', $workspace->id)->count();
+
+            if ($workspace->max_plans > 0 && $currentCount >= $workspace->max_plans) {
+                Flux::toast(variant: 'danger', text: "Plan limit reached ({$workspace->max_plans}). Contact your admin to increase the limit.");
+
+                return;
+            }
+
+            $data['workspace_id'] = $workspace->id;
+            $data['sort_order'] = (int) Plan::query()->where('workspace_id', $workspace->id)->max('sort_order') + 1;
             Plan::create($data);
             Flux::toast(variant: 'success', text: 'Plan created successfully.');
         }
@@ -115,7 +136,10 @@ class Plans extends Component
      */
     public function toggleActive(int $planId): void
     {
-        $plan = Plan::findOrFail($planId);
+        $plan = Plan::query()
+            ->where('workspace_id', $this->authWorkspace()->id)
+            ->whereKey($planId)
+            ->firstOrFail();
         $plan->update(['is_active' => ! $plan->is_active]);
 
         $status = $plan->is_active ? 'activated' : 'deactivated';
@@ -127,7 +151,10 @@ class Plans extends Component
      */
     public function delete(int $planId): void
     {
-        $plan = Plan::findOrFail($planId);
+        $plan = Plan::query()
+            ->where('workspace_id', $this->authWorkspace()->id)
+            ->whereKey($planId)
+            ->firstOrFail();
 
         if ($plan->guestSessions()->exists() || $plan->payments()->exists()) {
             Flux::toast(variant: 'danger', text: 'Cannot delete plan with existing sessions or payments. Deactivate it instead.');
@@ -149,15 +176,19 @@ class Plans extends Component
     }
 
     #[Computed]
-    public function plans(): \Illuminate\Database\Eloquent\Collection
+    public function plans(): Collection
     {
-        return Plan::orderBy('sort_order')->orderBy('name')->get();
+        return Plan::query()
+            ->where('workspace_id', $this->authWorkspace()->id)
+            ->orderBy('sort_order')
+            ->orderBy('name')
+            ->get();
     }
 
     #[Computed]
     public function activePlansCount(): int
     {
-        return Plan::active()->count();
+        return Plan::active()->where('workspace_id', $this->authWorkspace()->id)->count();
     }
 
     /**

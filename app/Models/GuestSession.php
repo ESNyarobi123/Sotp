@@ -4,13 +4,14 @@ namespace App\Models;
 
 use Database\Factories\GuestSessionFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 #[Fillable([
-    'client_mac', 'ap_mac', 'ip_address', 'ssid', 'username',
+    'workspace_id', 'client_mac', 'ap_mac', 'ip_address', 'ssid', 'username',
     'plan_id', 'data_used_mb', 'data_limit_mb',
     'time_started', 'time_expires', 'time_ended',
     'status', 'omada_auth_id',
@@ -19,6 +20,15 @@ class GuestSession extends Model
 {
     /** @use HasFactory<GuestSessionFactory> */
     use HasFactory;
+
+    protected static function booted(): void
+    {
+        static::creating(function (GuestSession $session): void {
+            if ($session->workspace_id === null && $session->plan_id) {
+                $session->workspace_id = Plan::query()->whereKey($session->plan_id)->value('workspace_id');
+            }
+        });
+    }
 
     /**
      * @return array<string, string>
@@ -51,12 +61,20 @@ class GuestSession extends Model
     }
 
     /**
+     * @return BelongsTo<Workspace, $this>
+     */
+    public function workspace(): BelongsTo
+    {
+        return $this->belongsTo(Workspace::class);
+    }
+
+    /**
      * Scope: active sessions only.
      *
-     * @param  \Illuminate\Database\Eloquent\Builder<static>  $query
-     * @return \Illuminate\Database\Eloquent\Builder<static>
+     * @param  Builder<static>  $query
+     * @return Builder<static>
      */
-    public function scopeActive(\Illuminate\Database\Eloquent\Builder $query): \Illuminate\Database\Eloquent\Builder
+    public function scopeActive(Builder $query): Builder
     {
         return $query->where('status', 'active');
     }

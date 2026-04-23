@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Middleware\DetectPublicUrl;
+use App\Http\Middleware\EnsureUserIsAdmin;
 use App\Http\Middleware\SecurityHeaders;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
@@ -17,6 +18,10 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->web(append: [
             DetectPublicUrl::class,
             SecurityHeaders::class,
+        ]);
+
+        $middleware->alias([
+            'admin' => EnsureUserIsAdmin::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

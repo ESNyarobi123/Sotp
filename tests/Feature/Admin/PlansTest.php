@@ -8,7 +8,7 @@ use Livewire\Livewire;
 
 test('plans page shows existing plans', function () {
     $user = User::factory()->create();
-    $plan = Plan::factory()->create(['name' => 'Test WiFi Plan']);
+    $plan = Plan::factory()->for($user->workspace)->create(['name' => 'Test WiFi Plan']);
 
     Livewire::actingAs($user)
         ->test(Plans::class)
@@ -29,6 +29,7 @@ test('can create a new time-based plan', function () {
         ->call('save');
 
     $this->assertDatabaseHas('plans', [
+        'workspace_id' => $user->workspace->id,
         'name' => '30 Minutes WiFi',
         'type' => 'time',
         'value' => 30,
@@ -50,6 +51,7 @@ test('can create a new data-based plan', function () {
         ->call('save');
 
     $this->assertDatabaseHas('plans', [
+        'workspace_id' => $user->workspace->id,
         'name' => '500MB Bundle',
         'type' => 'data',
         'value' => 500,
@@ -58,7 +60,7 @@ test('can create a new data-based plan', function () {
 
 test('can edit an existing plan', function () {
     $user = User::factory()->create();
-    $plan = Plan::factory()->create(['name' => 'Old Name']);
+    $plan = Plan::factory()->for($user->workspace)->create(['name' => 'Old Name']);
 
     Livewire::actingAs($user)
         ->test(Plans::class)
@@ -71,7 +73,7 @@ test('can edit an existing plan', function () {
 
 test('can toggle plan active status', function () {
     $user = User::factory()->create();
-    $plan = Plan::factory()->create(['is_active' => true]);
+    $plan = Plan::factory()->for($user->workspace)->create(['is_active' => true]);
 
     Livewire::actingAs($user)
         ->test(Plans::class)
@@ -82,7 +84,7 @@ test('can toggle plan active status', function () {
 
 test('can delete a plan without sessions or payments', function () {
     $user = User::factory()->create();
-    $plan = Plan::factory()->create();
+    $plan = Plan::factory()->for($user->workspace)->create();
 
     Livewire::actingAs($user)
         ->test(Plans::class)
@@ -93,7 +95,7 @@ test('can delete a plan without sessions or payments', function () {
 
 test('cannot delete a plan with existing sessions', function () {
     $user = User::factory()->create();
-    $plan = Plan::factory()->create();
+    $plan = Plan::factory()->for($user->workspace)->create();
     GuestSession::factory()->create(['plan_id' => $plan->id]);
 
     Livewire::actingAs($user)

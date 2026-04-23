@@ -4,6 +4,8 @@ namespace App\Services;
 
 use App\Models\Device;
 use App\Models\OmadaSetting;
+use App\Models\Workspace;
+use Carbon\Carbon;
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
@@ -80,6 +82,18 @@ class OmadaService
         return $this->resolve('site_id', 'site_id');
     }
 
+    /**
+     * Omada site ID for API calls: workspace first, then legacy .env / DB.
+     */
+    private function resolvedSiteId(?Workspace $workspace): string
+    {
+        if ($workspace !== null && $workspace->omada_site_id !== null && $workspace->omada_site_id !== '') {
+            return $workspace->omada_site_id;
+        }
+
+        return $this->siteId();
+    }
+
     private function clientId(): string
     {
         return $this->resolve('client_id', 'api_key');
@@ -93,6 +107,463 @@ class OmadaService
     private function verifySsl(): bool
     {
         return (bool) config('services.omada.verify_ssl', false);
+    }
+
+    private function configuredClientId(): string
+    {
+        return (string) config('services.omada.client_id', '');
+    }
+
+    private function configuredClientSecret(): string
+    {
+        return (string) config('services.omada.client_secret', '');
+    }
+
+    private function configuredControllerId(): string
+    {
+        return (string) config('services.omada.controller_id', '');
+    }
+
+    private function configuredDefaultSiteId(): string
+    {
+        return (string) config('services.omada.site_id', '');
+    }
+
+    private function hasSavedControllerConnection(): bool
+    {
+        $settings = $this->settings();
+
+        return $settings !== null
+            && filled($settings->controller_url)
+            && filled($settings->username);
+    }
+
+    /**
+     * Step 1 audit: summarize which Omada capabilities are already implemented,
+     * which still need configuration, and which remain unverified.
+     *
+     * @return array<int, array{title: string, status: string, description: string}>
+     */
+    public function auditCapabilities(): array
+    {
+        $hasLegacyControllerAccess = $this->hasSavedControllerConnection();
+        $hasOpenApiClientId = filled($this->configuredClientId());
+        $hasOpenApiClientSecret = filled($this->configuredClientSecret());
+        $hasControllerId = filled($this->configuredControllerId()) || filled($this->settings()?->omada_id);
+        $hasDefaultSiteId = filled($this->configuredDefaultSiteId()) || filled($this->settings()?->site_id);
+
+        return [
+            [
+                'title' => 'Workspace site provisioning',
+                'status' => $hasOpenApiClientId && $hasOpenApiClientSecret && $hasControllerId ? 'implemented' : ($hasLegacyControllerAccess ? 'needs_config' : 'setup_needed'),
+                'description' => $hasOpenApiClientId && $hasOpenApiClientSecret && $hasControllerId
+                    ? 'createSiteForBrand and the provisioning job are ready to create per-workspace Omada sites.'
+                    : 'Provisioning code exists, but Open API automation still depends on OMADA_CLIENT_ID, OMADA_CLIENT_SECRET, and a controller ID.',
+            ],
+            [
+                'title' => 'Device sync, rename, and reboot',
+                'status' => $hasControllerId && $hasDefaultSiteId ? 'implemented' : ($hasLegacyControllerAccess ? 'needs_config' : 'setup_needed'),
+                'description' => $hasControllerId && $hasDefaultSiteId
+                    ? 'Device sync and AP management endpoints are already implemented in the service layer.'
+                    : 'Management endpoints are coded, but they need a controller ID plus a site ID before they can be trusted in production.',
+            ],
+            [
+                'title' => 'External portal authorize / unauthorize',
+                'status' => $hasControllerId && $hasDefaultSiteId ? 'implemented' : ($hasLegacyControllerAccess ? 'needs_config' : 'setup_needed'),
+                'description' => $hasControllerId && $hasDefaultSiteId
+                    ? 'Hotspot external portal auth and unauth calls are already used by the payment/session flow.'
+                    : 'The portal auth flow exists, but site-aware verification is still required for a real controller.',
+            ],
+            [
+                'title' => 'Pending device adopt / assign to site',
+                'status' => $hasControllerId ? 'needs_config' : 'unverified',
+                'description' => $hasControllerId
+                    ? 'Public Open API adopt and move endpoints are verified, but safe automation still needs per-device credentials and an admin workflow before SKY should trigger them.'
+                    : 'Public Open API adopt and move endpoints are verified, but controller-aware configuration is still required before SKY can use them safely.',
+            ],
+            [
+                'title' => 'Hotspot profile / portal URL automation',
+                'status' => 'unverified',
+                'description' => 'The app can supply the external portal URL, but auto-pushing it into Omada hotspot config still needs API confirmation.',
+            ],
+        ];
+    }
+
+    /**
+     * Step 1 audit notes for the admin UI.
+     *
+     * @return array<int, string>
+     */
+    public function auditNotes(): array
+    {
+        return [
+            'Step 1 confirms what is truly implemented in code today versus what still depends on your real controller API version.',
+            'Admin screen credentials help with controller visibility, but Open API provisioning still relies on OMADA_* environment values for full automation.',
+            'Adopt and move endpoints are now verified from the public Open API spec, but safe automation still depends on collecting device credentials and enforcing an admin-first workflow.',
+        ];
+    }
+
+    /**
+     * Step 1 automation readiness checklist.
+     *
+     * @return array<int, array{label: string, ready: bool, source: string}>
+     */
+    public function automationReadiness(?string $externalPortalUrl = null): array
+    {
+        $settings = $this->settings();
+
+        return [
+            [
+                'label' => 'Controller URL saved',
+                'ready' => filled($settings?->controller_url),
+                'source' => 'Admin settings',
+            ],
+            [
+                'label' => 'Controller username saved',
+                'ready' => filled($settings?->username),
+                'source' => 'Admin settings',
+            ],
+            [
+                'label' => 'Open API client ID available',
+                'ready' => filled($this->configuredClientId()),
+                'source' => '.env / config',
+            ],
+            [
+                'label' => 'Open API client secret available',
+                'ready' => filled($this->configuredClientSecret()),
+                'source' => '.env / config',
+            ],
+            [
+                'label' => 'Controller ID available',
+                'ready' => filled($this->configuredControllerId()) || filled($settings?->omada_id),
+                'source' => '.env or detected from controller',
+            ],
+            [
+                'label' => 'Default site ID available',
+                'ready' => filled($this->configuredDefaultSiteId()) || filled($settings?->site_id),
+                'source' => '.env or saved fallback site',
+            ],
+            [
+                'label' => 'External portal URL available',
+                'ready' => filled($externalPortalUrl) || filled($settings?->external_portal_url),
+                'source' => 'Admin settings / detected public URL',
+            ],
+        ];
+    }
+
+    /**
+     * Final workspace readiness checks before the signed-in workspace can use
+     * Omada-powered portal and device actions end-to-end.
+     *
+     * @return array<int, array{label: string, ready: bool, source: string}>
+     */
+    public function finalizeSiteReadiness(?Workspace $workspace = null, ?string $externalPortalUrl = null): array
+    {
+        $settings = $this->settings();
+
+        return [
+            [
+                'label' => 'Controller connection verified',
+                'ready' => (bool) ($settings?->is_connected),
+                'source' => 'Connection test',
+            ],
+            [
+                'label' => 'Open API automation configured',
+                'ready' => $this->isConfigured(),
+                'source' => '.env / config',
+            ],
+            [
+                'label' => 'Workspace Omada site assigned',
+                'ready' => filled($workspace?->omada_site_id),
+                'source' => 'Workspace provisioning',
+            ],
+            [
+                'label' => 'Controller ID available',
+                'ready' => filled($this->configuredControllerId()) || filled($settings?->omada_id),
+                'source' => '.env or detected from controller',
+            ],
+            [
+                'label' => 'External portal URL saved',
+                'ready' => filled($externalPortalUrl) || filled($settings?->external_portal_url),
+                'source' => 'Admin settings / detected public URL',
+            ],
+            [
+                'label' => 'Hotspot operator credentials saved',
+                'ready' => filled($settings?->hotspot_operator_name) && filled($settings?->hotspot_operator_password),
+                'source' => 'Admin settings',
+            ],
+        ];
+    }
+
+    public function deviceAdoptionStatus(?Workspace $workspace = null): array
+    {
+        $settings = $this->settings();
+        $blockers = [];
+
+        if (! $this->isConfigured()) {
+            $blockers[] = 'Open API automation is not fully configured yet.';
+        }
+
+        if (! (bool) ($settings?->is_connected)) {
+            $blockers[] = 'Controller connection has not been verified yet.';
+        }
+
+        if (! filled($workspace?->omada_site_id)) {
+            $blockers[] = 'This workspace does not have an Omada site assigned yet.';
+        }
+
+        if ($blockers !== []) {
+            return [
+                'status' => 'blocked',
+                'badge_color' => 'amber',
+                'title' => 'Finish workspace readiness before Step 3 device adoption',
+                'message' => 'Device adoption still begins in the Omada controller UI, but this workspace needs the core readiness checks completed before site-aware validation can be trusted.',
+                'action_label' => 'Complete readiness first',
+                'steps' => [
+                    'Finish workspace provisioning and confirm the Omada site ID is assigned.',
+                    'Verify the controller connection from the Omada Integration page.',
+                    'Return here after readiness is complete to continue the manual adoption flow.',
+                ],
+                'blockers' => $blockers,
+                'endpoint_verified' => false,
+            ];
+        }
+
+        return [
+            'status' => 'manual',
+            'badge_color' => 'sky',
+            'title' => 'Adopt endpoint is verified, but device credentials are still required',
+            'message' => 'The public Open API now verifies start-adopt, adopt-result, and site-move endpoints. SKY still keeps Step 3 manual-first until an admin provides the device credentials needed to trigger adoption safely.',
+            'action_label' => 'Prepare device credentials, then adopt',
+            'steps' => [
+                'Confirm the pending device default username and password before starting adoption.',
+                'Open the Omada controller and adopt the pending device under the correct workspace site.',
+                'Return to SKY and click Sync from Omada to import the device into this workspace.',
+            ],
+            'blockers' => [],
+            'endpoint_verified' => true,
+        ];
+    }
+
+    /**
+     * @return array{status: string, supported: bool, total: int, isolated: array<int, array{name: string, mac: string, model: string|null, type: string|null, in_sky: bool, local_device_name: string|null, local_device_status: string|null}>, preconfig: array<int, array{name: string, mac: string, model: string|null, type: string|null, in_sky: bool, local_device_name: string|null, local_device_status: string|null}>, correlation: array{already_in_sky: int, not_in_sky: int}, error: string|null}
+     */
+    public function pendingDeviceInventory(?Workspace $workspace = null): array
+    {
+        $settings = $this->settings();
+
+        if (! $this->isConfigured() || ! (bool) ($settings?->is_connected) || ! filled($workspace?->omada_site_id)) {
+            return [
+                'status' => 'blocked',
+                'supported' => false,
+                'total' => 0,
+                'isolated' => [],
+                'preconfig' => [],
+                'correlation' => ['already_in_sky' => 0, 'not_in_sky' => 0],
+                'error' => null,
+            ];
+        }
+
+        $cacheKey = $this->pendingDeviceInventoryCacheKey($workspace);
+
+        return Cache::remember($cacheKey, now()->addSeconds(30), function () use ($workspace): array {
+            if (! $this->ensureAuthenticated()) {
+                return [
+                    'status' => 'unavailable',
+                    'supported' => true,
+                    'total' => 0,
+                    'isolated' => [],
+                    'preconfig' => [],
+                    'correlation' => ['already_in_sky' => 0, 'not_in_sky' => 0],
+                    'error' => 'Failed to authenticate with Omada controller',
+                ];
+            }
+
+            $url = $this->baseUrl().'/openapi/v2/'.$this->controllerId().'/sites/'.$this->resolvedSiteId($workspace).'/topology/isolated-and-pre-config';
+
+            try {
+                $response = $this->httpClient()->get($url);
+
+                if (! $response->successful() || $response->json('errorCode') !== 0) {
+                    return [
+                        'status' => 'unavailable',
+                        'supported' => true,
+                        'total' => 0,
+                        'isolated' => [],
+                        'preconfig' => [],
+                        'correlation' => ['already_in_sky' => 0, 'not_in_sky' => 0],
+                        'error' => $response->json('msg') ?: 'Unable to fetch pending device inventory from Omada.',
+                    ];
+                }
+
+                $result = $response->json('result') ?? [];
+                $localDeviceLookup = $this->localDeviceLookup($workspace);
+                $isolated = $this->normalizeTopologyBriefDevices($result['isolated'] ?? [], $localDeviceLookup);
+                $preconfig = $this->normalizeTopologyBriefDevices($result['preconfig'] ?? [], $localDeviceLookup);
+                $allDevices = [...$isolated, ...$preconfig];
+
+                return [
+                    'status' => 'ready',
+                    'supported' => true,
+                    'total' => (int) ($result['total'] ?? 0),
+                    'isolated' => $isolated,
+                    'preconfig' => $preconfig,
+                    'correlation' => [
+                        'already_in_sky' => count(array_filter($allDevices, fn (array $device): bool => $device['in_sky'])),
+                        'not_in_sky' => count(array_filter($allDevices, fn (array $device): bool => ! $device['in_sky'])),
+                    ],
+                    'error' => null,
+                ];
+            } catch (\Exception $e) {
+                $this->log('warning', 'Pending device inventory fetch failed', [
+                    'workspace_id' => $workspace->id,
+                    'error' => $e->getMessage(),
+                ]);
+
+                return [
+                    'status' => 'unavailable',
+                    'supported' => true,
+                    'total' => 0,
+                    'isolated' => [],
+                    'preconfig' => [],
+                    'correlation' => ['already_in_sky' => 0, 'not_in_sky' => 0],
+                    'error' => $e->getMessage(),
+                ];
+            }
+        });
+    }
+
+    public function forgetPendingDeviceInventory(?Workspace $workspace = null): void
+    {
+        if ($workspace === null || ! filled($workspace->omada_site_id)) {
+            return;
+        }
+
+        Cache::forget($this->pendingDeviceInventoryCacheKey($workspace));
+    }
+
+    private function sitesUrl(): string
+    {
+        return $this->baseUrl().'/openapi/v1/'.$this->controllerId().'/sites';
+    }
+
+    private function pendingDeviceInventoryCacheKey(Workspace $workspace): string
+    {
+        return 'omada_pending_device_inventory:'.$workspace->id.':'.$workspace->omada_site_id;
+    }
+
+    /**
+     * @return array<string, array{name: string, status: string}>
+     */
+    private function localDeviceLookup(Workspace $workspace): array
+    {
+        return Device::query()
+            ->where('workspace_id', $workspace->id)
+            ->get(['ap_mac', 'name', 'status'])
+            ->mapWithKeys(function (Device $device): array {
+                return [
+                    strtoupper((string) $device->ap_mac) => [
+                        'name' => $device->name,
+                        'status' => $device->status,
+                    ],
+                ];
+            })
+            ->all();
+    }
+
+    /**
+     * @param  array<int, array<string, mixed>>  $devices
+     * @param  array<string, array{name: string, status: string}>  $localDeviceLookup
+     * @return array<int, array{name: string, mac: string, model: string|null, type: string|null, in_sky: bool, local_device_name: string|null, local_device_status: string|null}>
+     */
+    private function normalizeTopologyBriefDevices(array $devices, array $localDeviceLookup = []): array
+    {
+        return array_values(array_map(function (array $device) use ($localDeviceLookup): array {
+            $mac = strtoupper(str_replace('-', ':', (string) ($device['mac'] ?? '')));
+            $name = (string) ($device['name'] ?? $device['model'] ?? $mac ?: 'Pending device');
+            $localDevice = $localDeviceLookup[$mac] ?? null;
+
+            return [
+                'name' => $name,
+                'mac' => $mac,
+                'model' => isset($device['model']) ? (string) $device['model'] : null,
+                'type' => isset($device['type']) ? (string) $device['type'] : null,
+                'in_sky' => $localDevice !== null,
+                'local_device_name' => $localDevice['name'] ?? null,
+                'local_device_status' => $localDevice['status'] ?? null,
+            ];
+        }, $devices));
+    }
+
+    private function extractSiteId(mixed $result): ?string
+    {
+        if (! is_array($result)) {
+            return null;
+        }
+
+        $siteId = $result['siteId'] ?? $result['siteID'] ?? $result['id'] ?? null;
+
+        return filled($siteId) ? (string) $siteId : null;
+    }
+
+    private function findExistingSiteIdByName(string $siteDisplayName): ?string
+    {
+        try {
+            $response = $this->httpClient()->get($this->sitesUrl().'?page=1&pageSize=100');
+
+            if (! $response->successful()) {
+                return null;
+            }
+
+            $sites = $response->json('result.data') ?? [];
+            $expectedName = mb_strtolower(trim($siteDisplayName));
+
+            foreach ($sites as $site) {
+                $siteName = mb_strtolower(trim((string) ($site['name'] ?? '')));
+
+                if ($siteName !== '' && $siteName === $expectedName) {
+                    return $this->extractSiteId($site);
+                }
+            }
+        } catch (\Exception $e) {
+            $this->log('warning', 'Find existing Omada site failed', [
+                'name' => $siteDisplayName,
+                'error' => $e->getMessage(),
+            ]);
+        }
+
+        return null;
+    }
+
+    private function buildSiteCreateFailure(int $status, string $errorMessage): array
+    {
+        $normalizedError = trim($errorMessage) !== '' ? trim($errorMessage) : 'Unknown error creating Omada site';
+        $lowerError = strtolower($normalizedError);
+        $errorCode = 'site_create_failed';
+        $retryable = false;
+
+        if ($status === 0) {
+            $errorCode = 'controller_exception';
+            $retryable = true;
+        } elseif ($status === 429) {
+            $errorCode = 'rate_limited';
+            $retryable = true;
+        } elseif (in_array($status, [500, 502, 503, 504], true)) {
+            $errorCode = 'controller_unavailable';
+            $retryable = true;
+        } elseif (in_array($status, [401, 403], true)) {
+            $errorCode = 'authentication_failed';
+        } elseif ($status === 409 || str_contains($lowerError, 'already exist') || str_contains($lowerError, 'duplicate')) {
+            $errorCode = 'duplicate_site';
+        }
+
+        return [
+            'success' => false,
+            'siteId' => null,
+            'error' => $normalizedError,
+            'error_code' => $errorCode,
+            'retryable' => $retryable,
+        ];
     }
 
     // ─── Authentication (Open API Only) ─────────────────────────
@@ -207,7 +678,7 @@ class OmadaService
         return Http::timeout(15)
             ->when(! $this->verifySsl(), fn ($http) => $http->withoutVerifying())
             ->withHeaders(array_filter([
-                'Authorization' => 'AccessToken=' . $this->accessToken,
+                'Authorization' => 'AccessToken='.$this->accessToken,
                 'Csrf-Token' => $this->csrfToken,
             ]));
     }
@@ -215,11 +686,11 @@ class OmadaService
     /**
      * Build the Open API URL for a given endpoint path.
      */
-    private function apiUrl(string $path): string
+    private function apiUrl(string $path, ?Workspace $workspace = null): string
     {
         $base = $this->baseUrl();
         $cid = $this->controllerId();
-        $sid = $this->siteId();
+        $sid = $this->resolvedSiteId($workspace);
 
         return "{$base}/openapi/v1/{$cid}/sites/{$sid}/{$path}";
     }
@@ -232,8 +703,12 @@ class OmadaService
      * @param  array{clientMac: string, apMac?: string, ssid?: string, minutes?: int}  $data
      * @return array{success: bool, authId: string|null, error: string|null}
      */
-    public function authorizeClient(array $data): array
+    public function authorizeClient(array $data, ?Workspace $workspace = null): array
     {
+        if ($this->resolvedSiteId($workspace) === '') {
+            return ['success' => false, 'authId' => null, 'error' => 'Omada site is not configured for this workspace'];
+        }
+
         if (! $this->ensureAuthenticated()) {
             return ['success' => false, 'authId' => null, 'error' => 'Failed to authenticate with Omada controller'];
         }
@@ -256,7 +731,7 @@ class OmadaService
             'time' => $minutes * 60,
         ];
 
-        $url = $this->apiUrl('hotspot/extPortal/auth');
+        $url = $this->apiUrl('hotspot/extPortal/auth', $workspace);
 
         $this->log('info', 'Authorizing client', [
             'url' => $url,
@@ -285,7 +760,7 @@ class OmadaService
                 $this->flushToken();
 
                 if ($this->authenticate()) {
-                    $response = $this->httpClient()->post($url, $payload);
+                    $response = $this->httpClient()->post($this->apiUrl('hotspot/extPortal/auth', $workspace), $payload);
 
                     if ($response->successful() && $response->json('errorCode') === 0) {
                         $authId = $response->json('result.clientId') ?? $response->json('result.id');
@@ -324,8 +799,12 @@ class OmadaService
      *
      * @return array{success: bool, error: string|null}
      */
-    public function unauthorizeClient(string $clientMac): array
+    public function unauthorizeClient(string $clientMac, ?Workspace $workspace = null): array
     {
+        if ($this->resolvedSiteId($workspace) === '') {
+            return ['success' => false, 'error' => 'Omada site is not configured for this workspace'];
+        }
+
         if (! $this->ensureAuthenticated()) {
             return ['success' => false, 'error' => 'Failed to authenticate with Omada controller'];
         }
@@ -336,7 +815,7 @@ class OmadaService
 
         RateLimiter::hit('omada-api');
 
-        $url = $this->apiUrl('hotspot/extPortal/unauth');
+        $url = $this->apiUrl('hotspot/extPortal/unauth', $workspace);
 
         $this->log('info', 'Unauthorizing client', [
             'url' => $url,
@@ -357,7 +836,7 @@ class OmadaService
                 $this->flushToken();
 
                 if ($this->authenticate()) {
-                    $response = $this->httpClient()->post($url, ['clientMac' => $clientMac]);
+                    $response = $this->httpClient()->post($this->apiUrl('hotspot/extPortal/unauth', $workspace), ['clientMac' => $clientMac]);
 
                     if ($response->successful() && $response->json('errorCode') === 0) {
                         $this->log('info', 'Client unauthorized on retry', ['clientMac' => $clientMac]);
@@ -385,6 +864,100 @@ class OmadaService
         }
     }
 
+    /**
+     * Create a new Omada site (maps to a customer "brand" in SKY Omada).
+     *
+     * @return array{success: bool, siteId: string|null, error: string|null}
+     */
+    public function createSiteForBrand(string $siteDisplayName): array
+    {
+        if (! $this->ensureAuthenticated()) {
+            return $this->buildSiteCreateFailure(401, 'Failed to authenticate with Omada controller');
+        }
+
+        $url = $this->sitesUrl();
+
+        $this->log('info', 'Creating Omada site', ['url' => $url, 'name' => $siteDisplayName]);
+
+        try {
+            $response = $this->httpClient()->post($url, ['name' => $siteDisplayName]);
+
+            if ($response->successful() && $response->json('errorCode') === 0) {
+                $siteId = $this->extractSiteId($response->json('result'));
+
+                if ($siteId) {
+                    $this->log('info', 'Omada site created', ['siteId' => $siteId]);
+
+                    return ['success' => true, 'siteId' => (string) $siteId, 'error' => null, 'error_code' => null, 'retryable' => false];
+                }
+            }
+
+            if ($response->status() === 401) {
+                $this->flushToken();
+
+                if ($this->authenticate()) {
+                    $response = $this->httpClient()->post($url, ['name' => $siteDisplayName]);
+
+                    if ($response->successful() && $response->json('errorCode') === 0) {
+                        $siteId = $this->extractSiteId($response->json('result'));
+
+                        if ($siteId) {
+                            return ['success' => true, 'siteId' => (string) $siteId, 'error' => null, 'error_code' => null, 'retryable' => false];
+                        }
+                    }
+                }
+            }
+
+            $errorMsg = $response->json('msg') ?? $response->body();
+
+            if (($response->status() === 409 || str_contains(strtolower((string) $errorMsg), 'already exist') || str_contains(strtolower((string) $errorMsg), 'duplicate'))
+                && ($existingSiteId = $this->findExistingSiteIdByName($siteDisplayName))) {
+                $this->log('info', 'Using existing Omada site after duplicate response', [
+                    'name' => $siteDisplayName,
+                    'siteId' => $existingSiteId,
+                ]);
+
+                return ['success' => true, 'siteId' => $existingSiteId, 'error' => null, 'error_code' => null, 'retryable' => false];
+            }
+
+            return $this->buildSiteCreateFailure($response->status(), (string) $errorMsg);
+        } catch (\Exception $e) {
+            $this->log('error', 'Create site exception', ['error' => $e->getMessage()]);
+
+            return $this->buildSiteCreateFailure(0, $e->getMessage());
+        }
+    }
+
+    /**
+     * Sync devices for every workspace that has an Omada site provisioned.
+     *
+     * @return array{success: bool, workspaces: int, synced: int, error: string|null}
+     */
+    public function syncDevicesForAllWorkspaces(): array
+    {
+        $workspaces = Workspace::query()
+            ->where('provisioning_status', 'ready')
+            ->whereNotNull('omada_site_id')
+            ->get();
+
+        $synced = 0;
+
+        foreach ($workspaces as $workspace) {
+            $one = $this->syncDevicesFromOmada($workspace);
+            if ($one['success']) {
+                $workspace->forceFill(['devices_last_synced_at' => now()])->save();
+                $synced += $one['synced'];
+            }
+        }
+
+        return [
+            'success' => true,
+            'workspaces' => $workspaces->count(),
+            'synced' => $synced,
+            'error' => null,
+        ];
+    }
+
     // ─── Device Sync ────────────────────────────────────────────
 
     /**
@@ -393,19 +966,23 @@ class OmadaService
      *
      * @return array{success: bool, synced: int, error: string|null}
      */
-    public function syncDevicesFromOmada(): array
+    public function syncDevicesFromOmada(Workspace $workspace): array
     {
+        if ($this->resolvedSiteId($workspace) === '') {
+            return ['success' => false, 'synced' => 0, 'error' => 'Workspace has no Omada site ID yet'];
+        }
+
         if (! $this->ensureAuthenticated()) {
             return ['success' => false, 'synced' => 0, 'error' => 'Failed to authenticate with Omada controller'];
         }
 
-        $url = $this->apiUrl('devices') . '?type=ap&page=1&pageSize=100';
+        $url = $this->apiUrl('devices', $workspace).'?type=ap&page=1&pageSize=100';
 
-        $this->log('info', 'Starting device sync', ['url' => $url]);
+        $this->log('info', 'Starting device sync', ['url' => $url, 'workspace_id' => $workspace->id]);
 
         try {
             // Fetch site name for display
-            $siteName = $this->fetchSiteName();
+            $siteName = $this->fetchSiteName($workspace);
 
             $response = $this->httpClient()->get($url);
 
@@ -432,14 +1009,17 @@ class OmadaService
                 $mac = strtoupper(str_replace('-', ':', $mac));
 
                 Device::updateOrCreate(
-                    ['ap_mac' => $mac],
+                    [
+                        'workspace_id' => $workspace->id,
+                        'ap_mac' => $mac,
+                    ],
                     [
                         'name' => $this->resolveDeviceName($ap),
                         'omada_device_id' => $ap['deviceId'] ?? $ap['id'] ?? null,
                         'model' => $ap['model'] ?? $ap['showModel'] ?? null,
                         'firmware_version' => $ap['firmwareVersion'] ?? $ap['version'] ?? null,
                         'ip_address' => $ap['ip'] ?? null,
-                        'site_name' => $ap['site'] ?? $siteName ?? $this->siteId(),
+                        'site_name' => $ap['site'] ?? $siteName ?? $this->resolvedSiteId($workspace),
                         'clients_count' => $ap['clientNum'] ?? $ap['clients'] ?? 0,
                         'uptime_seconds' => $this->parseUptime($ap['uptimeLong'] ?? $ap['uptime'] ?? 0),
                         'channel_2g' => $this->extractRadioField($ap, '2g', 'channel'),
@@ -448,7 +1028,7 @@ class OmadaService
                         'tx_power_5g' => $this->extractRadioField($ap, '5g', 'txPower'),
                         'status' => in_array($ap['status'] ?? 0, [2, 14]) ? 'online' : 'offline',
                         'last_seen_at' => isset($ap['lastSeen'])
-                            ? \Carbon\Carbon::createFromTimestamp($ap['lastSeen'] / 1000)
+                            ? Carbon::createFromTimestamp($ap['lastSeen'] / 1000)
                             : now(),
                     ]
                 );
@@ -488,15 +1068,15 @@ class OmadaService
     /**
      * Fetch the site name for the configured site ID.
      */
-    private function fetchSiteName(): ?string
+    private function fetchSiteName(?Workspace $workspace = null): ?string
     {
         try {
-            $url = $this->baseUrl() . "/openapi/v1/{$this->controllerId()}/sites?page=1&pageSize=100";
+            $url = $this->baseUrl()."/openapi/v1/{$this->controllerId()}/sites?page=1&pageSize=100";
             $response = $this->httpClient()->get($url);
 
             if ($response->successful()) {
                 $sites = $response->json('result.data') ?? [];
-                $siteId = $this->siteId();
+                $siteId = $this->resolvedSiteId($workspace);
 
                 foreach ($sites as $site) {
                     if (($site['siteId'] ?? '') === $siteId) {
@@ -531,7 +1111,7 @@ class OmadaService
         }
 
         // Format 2: flat keys like channel2g / channel5g
-        $flatKey = $field . ($band === '2g' ? '2g' : '5g');
+        $flatKey = $field.($band === '2g' ? '2g' : '5g');
 
         return isset($ap[$flatKey]) ? (string) $ap[$flatKey] : null;
     }
@@ -575,13 +1155,17 @@ class OmadaService
      *
      * @return array{success: bool, error: string|null}
      */
-    public function renameDevice(string $deviceMac, string $newName): array
+    public function renameDevice(string $deviceMac, string $newName, ?Workspace $workspace = null): array
     {
+        if ($this->resolvedSiteId($workspace) === '') {
+            return ['success' => false, 'error' => 'Omada site is not configured for this workspace'];
+        }
+
         if (! $this->ensureAuthenticated()) {
             return ['success' => false, 'error' => 'Failed to authenticate with Omada controller'];
         }
 
-        $url = $this->apiUrl("devices/{$deviceMac}");
+        $url = $this->apiUrl("devices/{$deviceMac}", $workspace);
 
         $this->log('info', 'Renaming device on Omada', [
             'mac' => $deviceMac,
@@ -602,7 +1186,7 @@ class OmadaService
                 $this->flushToken();
 
                 if ($this->authenticate()) {
-                    $response = $this->httpClient()->patch($url, ['name' => $newName]);
+                    $response = $this->httpClient()->patch($this->apiUrl("devices/{$deviceMac}", $workspace), ['name' => $newName]);
 
                     if ($response->successful() && $response->json('errorCode') === 0) {
                         return ['success' => true, 'error' => null];
@@ -633,13 +1217,17 @@ class OmadaService
      *
      * @return array{success: bool, error: string|null}
      */
-    public function rebootDevice(string $deviceMac): array
+    public function rebootDevice(string $deviceMac, ?Workspace $workspace = null): array
     {
+        if ($this->resolvedSiteId($workspace) === '') {
+            return ['success' => false, 'error' => 'Omada site is not configured for this workspace'];
+        }
+
         if (! $this->ensureAuthenticated()) {
             return ['success' => false, 'error' => 'Failed to authenticate with Omada controller'];
         }
 
-        $url = $this->apiUrl("devices/{$deviceMac}/reboot");
+        $url = $this->apiUrl("devices/{$deviceMac}/reboot", $workspace);
 
         $this->log('info', 'Rebooting device', ['mac' => $deviceMac]);
 
@@ -662,6 +1250,125 @@ class OmadaService
 
             return ['success' => false, 'error' => $e->getMessage()];
         }
+    }
+
+    public function startAdoptDevice(string $deviceMac, string $username, string $password, ?Workspace $workspace = null): array
+    {
+        if ($this->resolvedSiteId($workspace) === '') {
+            return ['success' => false, 'error' => 'Omada site is not configured for this workspace'];
+        }
+
+        if (trim($username) === '' || trim($password) === '') {
+            return ['success' => false, 'error' => 'Device adoption credentials are required'];
+        }
+
+        if (! $this->ensureAuthenticated()) {
+            return ['success' => false, 'error' => 'Failed to authenticate with Omada controller'];
+        }
+
+        $formattedMac = $this->formatOmadaDeviceMac($deviceMac, '-');
+        $url = $this->apiUrl("devices/{$formattedMac}/start-adopt", $workspace);
+
+        try {
+            $response = $this->httpClient()->post($url, [
+                'username' => $username,
+                'password' => $password,
+            ]);
+
+            if ($response->successful() && $response->json('errorCode') === 0) {
+                return ['success' => true, 'error' => null];
+            }
+
+            return ['success' => false, 'error' => $response->json('msg') ?? $response->body()];
+        } catch (\Exception $e) {
+            return ['success' => false, 'error' => $e->getMessage()];
+        }
+    }
+
+    public function getAdoptDeviceResult(string $deviceMac, ?Workspace $workspace = null): array
+    {
+        if ($this->resolvedSiteId($workspace) === '') {
+            return [
+                'success' => false,
+                'adopted' => false,
+                'device_mac' => null,
+                'adopt_error_code' => null,
+                'adopt_failed_type' => null,
+                'error' => 'Omada site is not configured for this workspace',
+            ];
+        }
+
+        if (! $this->ensureAuthenticated()) {
+            return [
+                'success' => false,
+                'adopted' => false,
+                'device_mac' => null,
+                'adopt_error_code' => null,
+                'adopt_failed_type' => null,
+                'error' => 'Failed to authenticate with Omada controller',
+            ];
+        }
+
+        $formattedMac = $this->formatOmadaDeviceMac($deviceMac, '-');
+        $url = $this->apiUrl("devices/{$formattedMac}/adopt-result", $workspace);
+
+        try {
+            $response = $this->httpClient()->get($url);
+
+            if (! $response->successful() || $response->json('errorCode') !== 0) {
+                return [
+                    'success' => false,
+                    'adopted' => false,
+                    'device_mac' => null,
+                    'adopt_error_code' => null,
+                    'adopt_failed_type' => null,
+                    'error' => $response->json('msg') ?? $response->body(),
+                ];
+            }
+
+            $result = $response->json('result') ?? [];
+            $adoptErrorCode = isset($result['adoptErrorCode']) ? (int) $result['adoptErrorCode'] : null;
+            $adoptFailedType = isset($result['adoptFailedType']) ? (int) $result['adoptFailedType'] : null;
+
+            return [
+                'success' => $adoptErrorCode === 0,
+                'adopted' => $adoptErrorCode === 0,
+                'device_mac' => isset($result['deviceMac']) ? $this->formatOmadaDeviceMac((string) $result['deviceMac']) : null,
+                'adopt_error_code' => $adoptErrorCode,
+                'adopt_failed_type' => $adoptFailedType,
+                'error' => $adoptErrorCode === 0 ? null : $this->adoptErrorMessage($adoptErrorCode, $adoptFailedType),
+            ];
+        } catch (\Exception $e) {
+            return [
+                'success' => false,
+                'adopted' => false,
+                'device_mac' => null,
+                'adopt_error_code' => null,
+                'adopt_failed_type' => null,
+                'error' => $e->getMessage(),
+            ];
+        }
+    }
+
+    private function formatOmadaDeviceMac(string $deviceMac, string $separator = ':'): string
+    {
+        $segments = str_split(strtoupper(preg_replace('/[^A-F0-9]/i', '', $deviceMac) ?? ''), 2);
+
+        return implode($separator, array_filter($segments));
+    }
+
+    private function adoptErrorMessage(?int $adoptErrorCode, ?int $adoptFailedType = null): string
+    {
+        return match ($adoptErrorCode) {
+            -39002 => 'Device adoption failed because the device did not respond to adopt commands.',
+            -39003 => 'Device adoption failed because the username or password is incorrect.',
+            -39004 => 'Device adoption failed.',
+            -39005 => 'Device adoption failed because the device is not connected.',
+            -39329 => 'Device adoption failed because Omada could not link to the uplink AP.',
+            default => $adoptFailedType === -2
+                ? 'Device adoption failed and requires device username or password input.'
+                : 'Device adoption failed.',
+        };
     }
 
     // ─── Logging ────────────────────────────────────────────────

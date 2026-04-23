@@ -5,7 +5,9 @@ namespace App\Livewire\Portal;
 use App\Models\GuestSession;
 use App\Models\Payment;
 use App\Models\Plan;
+use App\Models\Workspace;
 use App\Services\ClickPesaService;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Str;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Layout;
@@ -17,6 +19,8 @@ use Livewire\Component;
 #[Layout('layouts.portal')]
 class CaptivePortal extends Component
 {
+    public Workspace $workspace;
+
     // Omada redirect params
     public string $clientMac = '';
 
@@ -41,8 +45,10 @@ class CaptivePortal extends Component
     /**
      * Initialize with Omada captive portal redirect parameters.
      */
-    public function mount(): void
+    public function mount(Workspace $workspace): void
     {
+        $this->workspace = $workspace;
+
         $this->clientMac = request()->query('clientMac', '');
         $this->apMac = request()->query('apMac', '');
         $this->ssid = request()->query('ssid', '');
@@ -50,7 +56,9 @@ class CaptivePortal extends Component
 
         // Check if client already has an active session
         if ($this->clientMac) {
-            $existingSession = GuestSession::where('client_mac', $this->clientMac)
+            $existingSession = GuestSession::query()
+                ->where('workspace_id', $this->workspace->id)
+                ->where('client_mac', $this->clientMac)
                 ->where('status', 'active')
                 ->where('time_expires', '>', now())
                 ->first();
@@ -67,7 +75,7 @@ class CaptivePortal extends Component
      */
     public function selectPlan(int $planId): void
     {
-        $plan = Plan::active()->find($planId);
+        $plan = Plan::active()->where('workspace_id', $this->workspace->id)->find($planId);
 
         if (! $plan) {
             return;
@@ -106,9 +114,9 @@ class CaptivePortal extends Component
 
         // Normalize phone: strip leading 0, prepend 255
         $phone = ltrim($this->phoneNumber, '0');
-        $this->phoneNumber = '255' . $phone;
+        $this->phoneNumber = '255'.$phone;
 
-        $plan = Plan::active()->find($this->selectedPlanId);
+        $plan = Plan::active()->where('workspace_id', $this->workspace->id)->find($this->selectedPlanId);
 
         if (! $plan) {
             $this->errorMessage = 'Selected plan is no longer available.';
@@ -116,7 +124,7 @@ class CaptivePortal extends Component
             return;
         }
 
-        $clickPesa = app(ClickPesaService::class);
+        $clickPesa = app(ClickPesaService::class)->forWorkspace($this->workspace);
 
         if (! $clickPesa->isConfigured()) {
             $this->errorMessage = 'Payment system is not configured. Please contact support.';
@@ -125,10 +133,11 @@ class CaptivePortal extends Component
         }
 
         // Generate unique order reference
-        $orderRef = 'SKY' . strtoupper(Str::random(8));
+        $orderRef = 'SKY'.strtoupper(Str::random(8));
 
         // Create pending payment record
         $payment = Payment::create([
+            'workspace_id' => $this->workspace->id,
             'transaction_id' => $orderRef,
             'phone_number' => $this->phoneNumber,
             'amount' => $plan->price,
@@ -176,7 +185,10 @@ class CaptivePortal extends Component
             return;
         }
 
-        $payment = Payment::where('transaction_id', $this->transactionId)->first();
+        $payment = Payment::query()
+            ->where('workspace_id', $this->workspace->id)
+            ->where('transaction_id', $this->transactionId)
+            ->first();
 
         if (! $payment) {
             return;
@@ -202,6 +214,7 @@ class CaptivePortal extends Component
         };
 
         GuestSession::create([
+            'workspace_id' => $this->workspace->id,
             'client_mac' => $this->clientMac ?: 'unknown',
             'ap_mac' => $this->apMac ?: 'unknown',
             'ip_address' => $this->ipAddress ?: null,
@@ -229,14 +242,20 @@ class CaptivePortal extends Component
     }
 
     #[Computed]
-    public function plans(): \Illuminate\Database\Eloquent\Collection
+    public function plans(): Collection
     {
-        return Plan::active()->orderBy('sort_order')->orderBy('price')->get();
+        return Plan::active()
+            ->where('workspace_id', $this->workspace->id)
+            ->orderBy('sort_order')
+            ->orderBy('price')
+            ->get();
     }
 
     #[Computed]
     public function selectedPlan(): ?Plan
     {
-        return $this->selectedPlanId ? Plan::find($this->selectedPlanId) : null;
+        return $this->selectedPlanId
+            ? Plan::query()->where('workspace_id', $this->workspace->id)->find($this->selectedPlanId)
+            : null;
     }
 }

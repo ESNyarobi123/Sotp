@@ -3,6 +3,7 @@
 namespace Database\Factories;
 
 use App\Models\Plan;
+use App\Models\Workspace;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
 /**
@@ -20,6 +21,7 @@ class PlanFactory extends Factory
         $type = $this->faker->randomElement(['time', 'data', 'unlimited']);
 
         return [
+            'workspace_id' => Workspace::factory(),
             'name' => match ($type) {
                 'time' => $this->faker->randomElement(['1 Hour', '3 Hours', '12 Hours', '24 Hours', '3 Days', '7 Days']),
                 'data' => $this->faker->randomElement(['500 MB', '1 GB', '3 GB', '5 GB', '10 GB']),

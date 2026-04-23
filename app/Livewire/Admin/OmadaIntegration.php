@@ -3,7 +3,11 @@
 namespace App\Livewire\Admin;
 
 use App\Http\Middleware\DetectPublicUrl;
+use App\Jobs\ProvisionWorkspaceOmadaSiteJob;
+use App\Livewire\Admin\Concerns\UsesAuthWorkspace;
 use App\Models\OmadaSetting;
+use App\Models\Workspace;
+use App\Services\OmadaService;
 use Flux\Flux;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -15,6 +19,8 @@ use Livewire\Component;
 #[Title('Omada Integration')]
 class OmadaIntegration extends Component
 {
+    use UsesAuthWorkspace;
+
     #[Validate('required|url')]
     public string $controller_url = '';
 
@@ -42,6 +48,14 @@ class OmadaIntegration extends Component
     #[Validate('nullable|string|max:100')]
     public string $omada_id = '';
 
+    public string $adoptDeviceMac = '';
+
+    public string $adoptDeviceUsername = '';
+
+    public string $adoptDevicePassword = '';
+
+    public array $adoptDeviceResult = [];
+
     public bool $testing = false;
 
     /**
@@ -49,6 +63,8 @@ class OmadaIntegration extends Component
      */
     public function mount(): void
     {
+        abort_unless((bool) auth()->user()?->isAdmin(), 403);
+
         $settings = OmadaSetting::instance();
 
         $this->controller_url = $settings->controller_url ?? '';
@@ -141,7 +157,7 @@ class OmadaIntegration extends Component
         } catch (\Exception $e) {
             $settings->update(['is_connected' => false]);
             Log::error('Omada connection test failed', ['error' => $e->getMessage()]);
-            Flux::toast(variant: 'danger', text: 'Connection failed: ' . $e->getMessage());
+            Flux::toast(variant: 'danger', text: 'Connection failed: '.$e->getMessage());
         }
 
         $this->testing = false;
@@ -155,10 +171,136 @@ class OmadaIntegration extends Component
         $this->external_portal_url = DetectPublicUrl::portalUrl();
     }
 
+    public function retryProvisioning(): void
+    {
+        $workspace = $this->authWorkspace();
+
+        if ($workspace->isOmadaReady()) {
+            Flux::toast(variant: 'success', text: 'This workspace is already ready on Omada.');
+
+            return;
+        }
+
+        if (! app(OmadaService::class)->isConfigured()) {
+            Flux::toast(variant: 'danger', text: 'Open API automation is not fully configured yet. Complete the readiness checklist first.');
+
+            return;
+        }
+
+        $workspace->forceFill([
+            'provisioning_status' => 'pending',
+            'provisioning_error' => null,
+        ])->save();
+
+        ProvisionWorkspaceOmadaSiteJob::dispatch($workspace);
+
+        unset($this->workspace);
+
+        Flux::toast(variant: 'success', text: 'Workspace provisioning has been queued again.');
+    }
+
+    public function refreshPendingDeviceInventory(): void
+    {
+        app(OmadaService::class)->forgetPendingDeviceInventory($this->workspace);
+
+        unset($this->pendingDeviceInventory);
+
+        Flux::toast(variant: 'success', text: 'Pending device inventory refreshed.');
+    }
+
+    public function selectPendingDeviceForAdoption(string $deviceMac): void
+    {
+        $this->adoptDeviceMac = $deviceMac;
+        $this->adoptDeviceResult = [];
+    }
+
+    public function startDeviceAdoption(): void
+    {
+        $this->validate([
+            'adoptDeviceMac' => 'required|string|max:32',
+            'adoptDeviceUsername' => 'required|string|max:64',
+            'adoptDevicePassword' => 'required|string|max:64',
+        ]);
+
+        $result = app(OmadaService::class)->startAdoptDevice(
+            $this->adoptDeviceMac,
+            $this->adoptDeviceUsername,
+            $this->adoptDevicePassword,
+            $this->workspace,
+        );
+
+        if (! $result['success']) {
+            $this->adoptDeviceResult = [
+                'status' => 'error',
+                'title' => 'Adopt request failed',
+                'message' => $result['error'] ?? 'Unable to start device adoption.',
+                'device_mac' => $this->adoptDeviceMac,
+            ];
+
+            Flux::toast(variant: 'danger', text: 'Adopt request failed: '.($result['error'] ?? 'Unknown error'));
+
+            return;
+        }
+
+        app(OmadaService::class)->forgetPendingDeviceInventory($this->workspace);
+        unset($this->pendingDeviceInventory);
+
+        $this->adoptDeviceResult = [
+            'status' => 'pending',
+            'title' => 'Adopt request sent',
+            'message' => 'Omada accepted the adopt request. Click Check adopt result to confirm whether the device joined the site successfully.',
+            'device_mac' => $this->adoptDeviceMac,
+        ];
+
+        Flux::toast(variant: 'success', text: 'Adopt request sent to Omada.');
+    }
+
+    public function checkAdoptDeviceResult(): void
+    {
+        $this->validate([
+            'adoptDeviceMac' => 'required|string|max:32',
+        ]);
+
+        $result = app(OmadaService::class)->getAdoptDeviceResult($this->adoptDeviceMac, $this->workspace);
+
+        if ($result['adopted']) {
+            app(OmadaService::class)->forgetPendingDeviceInventory($this->workspace);
+            unset($this->pendingDeviceInventory);
+
+            $this->adoptDeviceResult = [
+                'status' => 'success',
+                'title' => 'Device adopted successfully',
+                'message' => 'The device reported a successful adoption result. You can now sync from Omada to import it into SKY.',
+                'device_mac' => $result['device_mac'] ?? $this->adoptDeviceMac,
+            ];
+
+            Flux::toast(variant: 'success', text: 'Device adoption completed successfully.');
+
+            return;
+        }
+
+        $this->adoptDeviceResult = [
+            'status' => 'error',
+            'title' => 'Adopt result needs attention',
+            'message' => $result['error'] ?? 'Device adoption is not complete yet.',
+            'device_mac' => $result['device_mac'] ?? $this->adoptDeviceMac,
+            'adopt_error_code' => $result['adopt_error_code'] ?? null,
+            'adopt_failed_type' => $result['adopt_failed_type'] ?? null,
+        ];
+
+        Flux::toast(variant: 'danger', text: 'Adopt result indicates the device still needs attention.');
+    }
+
     #[Computed]
     public function settings(): OmadaSetting
     {
         return OmadaSetting::instance();
+    }
+
+    #[Computed]
+    public function workspace(): Workspace
+    {
+        return $this->authWorkspace();
     }
 
     #[Computed]
@@ -194,5 +336,41 @@ class OmadaIntegration extends Component
     public function hasTunnelDetected(): bool
     {
         return DetectPublicUrl::isDetectedFromTunnel();
+    }
+
+    #[Computed]
+    public function auditCapabilities(): array
+    {
+        return app(OmadaService::class)->auditCapabilities();
+    }
+
+    #[Computed]
+    public function auditNotes(): array
+    {
+        return app(OmadaService::class)->auditNotes();
+    }
+
+    #[Computed]
+    public function automationReadiness(): array
+    {
+        return app(OmadaService::class)->automationReadiness($this->external_portal_url);
+    }
+
+    #[Computed]
+    public function finalizeSiteReadiness(): array
+    {
+        return app(OmadaService::class)->finalizeSiteReadiness($this->workspace, $this->external_portal_url);
+    }
+
+    #[Computed]
+    public function deviceAdoptionStatus(): array
+    {
+        return app(OmadaService::class)->deviceAdoptionStatus($this->workspace);
+    }
+
+    #[Computed]
+    public function pendingDeviceInventory(): array
+    {
+        return app(OmadaService::class)->pendingDeviceInventory($this->workspace);
     }
 }

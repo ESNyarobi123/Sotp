@@ -1,71 +1,65 @@
-<div>
-    {{-- Header --}}
-    <div class="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div class="flex items-center gap-3">
-            <div class="grid size-11 place-items-center rounded-2xl border border-ivory-darker/70 bg-white/70 shadow-sm backdrop-blur dark:border-smoke-light/70 dark:bg-smoke-light/40">
-                <flux:icon name="list-checks" class="size-6 text-terra dark:text-terra-light" />
+<div class="space-y-5 p-4 sm:p-6 lg:p-8">
+    {{-- Page Header --}}
+    <div class="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+            <div class="flex items-center gap-2.5">
+                <div class="grid size-9 place-items-center rounded-xl bg-gradient-to-br from-terra/20 to-terra/5 dark:from-terra/25 dark:to-terra/10">
+                    <flux:icon name="tag" class="size-5 text-terra dark:text-terra-light" />
+                </div>
+                <h1 class="text-2xl font-bold tracking-tight text-smoke dark:text-ivory">Plans</h1>
             </div>
-            <div>
-                <flux:heading size="lg" class="text-smoke dark:text-ivory">Plans / Packages</flux:heading>
-                <flux:text class="mt-1 text-smoke/50 dark:text-ivory/50">{{ $this->activePlansCount }} active plans</flux:text>
-            </div>
+            <p class="mt-1 text-xs text-smoke/50 dark:text-ivory/40">{{ $this->activePlansCount }} active plans available on your captive portal</p>
         </div>
-        <flux:button wire:click="create" icon="plus" class="!bg-terra !text-white hover:!opacity-90">
-            New Plan
-        </flux:button>
+        <flux:button wire:click="create" icon="plus" size="sm" class="cursor-pointer !bg-terra !text-white hover:!opacity-90">New Plan</flux:button>
     </div>
 
     {{-- Plans Grid --}}
-    <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+    <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         @forelse ($this->plans as $plan)
-            <flux:card class="relative rounded-2xl border border-ivory-darker/70 bg-white/70 shadow-sm backdrop-blur dark:border-smoke-light/70 dark:bg-smoke-light/40 {{ $plan->is_active ? 'ring-2 ring-terra/15' : 'opacity-70' }}">
-                {{-- Status indicator --}}
-                <div class="absolute right-4 top-4">
-                    <button wire:click="toggleActive({{ $plan->id }})" title="{{ $plan->is_active ? 'Deactivate' : 'Activate' }}">
-                        <div class="size-3 rounded-full {{ $plan->is_active ? 'bg-terra' : 'bg-smoke/30 dark:bg-ivory/30' }}"></div>
+            <div class="group relative overflow-hidden rounded-2xl border bg-white/80 p-4.5 shadow-sm backdrop-blur-sm transition-all duration-200 hover:shadow-md dark:bg-smoke-light/30 {{ $plan->is_active ? 'border-terra/20 dark:border-terra/15' : 'border-ivory-darker/50 opacity-60 dark:border-smoke-light/50' }}">
+                {{-- Top row: badge + toggle --}}
+                <div class="flex items-center justify-between">
+                    <span class="inline-flex items-center rounded-lg px-2.5 py-0.5 text-[11px] font-semibold {{ match($plan->type) { 'time' => 'bg-terra/10 text-terra', 'data' => 'bg-sky-500/10 text-sky-700 dark:text-sky-400', 'unlimited' => 'bg-violet-500/10 text-violet-700 dark:text-violet-400', default => 'bg-smoke/10 text-smoke/60' } }}">
+                        {{ ucfirst($plan->type) }}
+                    </span>
+                    <button wire:click="toggleActive({{ $plan->id }})" class="cursor-pointer group/toggle" title="{{ $plan->is_active ? 'Deactivate' : 'Activate' }}">
+                        <span class="size-3 rounded-full block transition-all duration-200 {{ $plan->is_active ? 'bg-emerald-500 shadow-md shadow-emerald-500/40 group-hover/toggle:shadow-lg group-hover/toggle:shadow-emerald-500/50' : 'bg-smoke/25 dark:bg-ivory/25 group-hover/toggle:bg-smoke/40' }}"></span>
                     </button>
                 </div>
 
-                {{-- Type badge --}}
-                <flux:badge size="sm" class="{{ match($plan->type) { 'time' => 'bg-terra text-white', 'data' => 'bg-smoke/60 text-ivory', 'unlimited' => 'bg-terra/60 text-white', default => 'bg-zinc-400 text-white' } }}">
-                    {{ ucfirst($plan->type) }}
-                </flux:badge>
-
-                {{-- Plan name --}}
-                <div class="mt-3 text-lg font-bold text-smoke dark:text-ivory">{{ $plan->name }}</div>
-
-                {{-- Value --}}
-                <div class="mt-1 text-sm text-smoke/80 dark:text-ivory/70">{{ $plan->formattedValue() }}</div>
-
-                {{-- Price --}}
-                <div class="mt-3 text-2xl font-bold text-terra dark:text-terra-light">
-                    {{ number_format($plan->price, 0) }}
-                    <span class="text-sm font-normal text-smoke/50">TZS</span>
+                {{-- Name + Value --}}
+                <div class="mt-3.5">
+                    <div class="text-base font-bold text-smoke dark:text-ivory leading-tight">{{ $plan->name }}</div>
+                    <div class="mt-1 flex items-center gap-1.5 text-xs text-smoke/50 dark:text-ivory/40">
+                        <flux:icon name="clock" class="size-3" />
+                        {{ $plan->formattedValue() }} &middot; {{ $plan->validity_days }}d validity
+                    </div>
                 </div>
 
-                {{-- Validity --}}
-                <div class="mt-1 text-xs text-smoke/50 dark:text-ivory/50">Valid for {{ $plan->validity_days }} {{ Str::plural('day', $plan->validity_days) }}</div>
+                {{-- Price --}}
+                <div class="mt-3.5 text-2xl font-bold text-terra dark:text-terra-light">
+                    {{ number_format($plan->price, 0) }}
+                    <span class="text-xs font-normal text-smoke/35">TZS</span>
+                </div>
 
-                {{-- Description --}}
                 @if($plan->description)
-                    <flux:text class="mt-2 text-xs">{{ $plan->description }}</flux:text>
+                    <p class="mt-2.5 text-[11px] leading-relaxed text-smoke/45 dark:text-ivory/35 line-clamp-2">{{ $plan->description }}</p>
                 @endif
 
                 {{-- Actions --}}
-                <div class="mt-4 flex gap-2 border-t border-ivory-darker pt-3 dark:border-smoke-light">
-                    <flux:button variant="ghost" size="sm" icon="pencil-square" wire:click="edit({{ $plan->id }})">Edit</flux:button>
-                    <flux:button variant="ghost" size="sm" icon="trash" wire:click="delete({{ $plan->id }})" wire:confirm="Delete '{{ $plan->name }}'? This cannot be undone." class="text-red-600 dark:text-red-400">Delete</flux:button>
+                <div class="mt-3.5 flex gap-1.5 border-t border-ivory-darker/40 pt-3 dark:border-smoke-light/30">
+                    <flux:button variant="ghost" size="sm" icon="pencil-square" wire:click="edit({{ $plan->id }})" class="cursor-pointer">Edit</flux:button>
+                    <flux:button variant="ghost" size="sm" icon="trash" wire:click="delete({{ $plan->id }})" wire:confirm="Delete '{{ $plan->name }}'?" class="cursor-pointer text-red-600 dark:text-red-400">Delete</flux:button>
                 </div>
-            </flux:card>
+            </div>
         @empty
-            <div class="col-span-full">
-                <flux:card>
-                    <div class="py-12 text-center">
-                        <flux:icon name="tag" class="mx-auto size-8 text-zinc-300" />
-                        <flux:text class="mt-2">No plans created yet</flux:text>
-                        <flux:button wire:click="create" variant="ghost" class="mt-4" icon="plus">Create your first plan</flux:button>
-                    </div>
-                </flux:card>
+            <div class="col-span-full rounded-2xl border-2 border-dashed border-ivory-darker/40 py-14 text-center dark:border-smoke-light/30">
+                <div class="mx-auto grid size-14 place-items-center rounded-2xl bg-ivory/70 dark:bg-smoke-light/40">
+                    <flux:icon name="tag" class="size-7 text-smoke/25 dark:text-ivory/20" />
+                </div>
+                <p class="mt-3 text-sm font-medium text-smoke/40 dark:text-ivory/35">No plans yet</p>
+                <p class="mt-1 text-xs text-smoke/30 dark:text-ivory/25">Create your first plan to start selling WiFi</p>
+                <flux:button wire:click="create" variant="ghost" class="mt-4 cursor-pointer" icon="plus" size="sm">Create first plan</flux:button>
             </div>
         @endforelse
     </div>

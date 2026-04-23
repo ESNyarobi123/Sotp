@@ -6,8 +6,8 @@ test('dashboard requires authentication', function () {
     $this->get('/dashboard')->assertRedirect('/login');
 });
 
-test('dashboard loads for authenticated user', function () {
-    $user = User::factory()->create();
+test('dashboard loads for authenticated admin', function () {
+    $user = User::factory()->admin()->create();
 
     $this->actingAs($user)
         ->get('/dashboard')
@@ -25,8 +25,8 @@ test('all admin routes require authentication', function () {
         '/plans',
         '/clients',
         '/devices',
-        '/omada',
-        '/gateways',
+        '/admin/omada',
+        '/admin/gateways',
     ];
 
     foreach ($routes as $route) {
@@ -34,17 +34,31 @@ test('all admin routes require authentication', function () {
     }
 });
 
-test('all admin routes load for authenticated user', function () {
+test('non-admin cannot open omada settings page', function () {
+    $user = User::factory()->create();
+    $this->actingAs($user);
+
+    $this->get('/admin/omada')
+        ->assertRedirect(route('dashboard'));
+});
+
+test('non-admin cannot open payment gateways page', function () {
+    $user = User::factory()->create();
+    $this->actingAs($user);
+
+    $this->get('/admin/gateways')
+        ->assertRedirect(route('dashboard'));
+});
+
+test('workspace routes load for any authenticated user', function () {
     $user = User::factory()->create();
 
     $routes = [
-        '/sessions' => 'Live Sessions',
+        '/sessions' => 'Sessions',
         '/payments' => 'Payments',
-        '/plans' => 'Plans / Packages',
+        '/plans' => 'Plans',
         '/clients' => 'Clients',
-        '/devices' => 'Devices (APs)',
-        '/omada' => 'Omada Integration',
-        '/gateways' => 'Payment Gateways',
+        '/devices' => 'Devices',
     ];
 
     foreach ($routes as $route => $expectedText) {
@@ -53,4 +67,22 @@ test('all admin routes load for authenticated user', function () {
             ->assertOk()
             ->assertSee($expectedText);
     }
+});
+
+test('omada settings page loads only for admin', function () {
+    $admin = User::factory()->admin()->create();
+
+    $this->actingAs($admin)
+        ->get('/admin/omada')
+        ->assertOk()
+        ->assertSee('Omada Integration');
+});
+
+test('payment gateways page loads only for admin', function () {
+    $admin = User::factory()->admin()->create();
+
+    $this->actingAs($admin)
+        ->get('/admin/gateways')
+        ->assertOk()
+        ->assertSee('Payment Gateways');
 });

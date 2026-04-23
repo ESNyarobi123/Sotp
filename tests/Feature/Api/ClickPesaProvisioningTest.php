@@ -3,9 +3,13 @@
 use App\Models\Payment;
 use App\Models\PaymentGatewaySetting;
 use App\Models\Plan;
+use App\Models\Workspace;
 
 beforeEach(function () {
+    $this->workspace = Workspace::factory()->create();
+
     PaymentGatewaySetting::create([
+        'workspace_id' => null,
         'gateway' => 'clickpesa',
         'display_name' => 'ClickPesa',
         'is_active' => true,
@@ -14,9 +18,10 @@ beforeEach(function () {
 });
 
 test('successful payment creates guest session', function () {
-    $plan = Plan::factory()->create(['type' => 'time', 'value' => 60]);
+    $plan = Plan::factory()->create(['workspace_id' => $this->workspace->id, 'type' => 'time', 'value' => 60]);
 
     $payment = Payment::factory()->create([
+        'workspace_id' => $this->workspace->id,
         'status' => 'pending',
         'transaction_id' => 'PROV_TEST_1',
         'plan_id' => $plan->id,
@@ -39,11 +44,10 @@ test('successful payment creates guest session', function () {
 
     $response->assertOk();
 
-    // Payment should be completed
     expect($payment->fresh()->status)->toBe('completed');
 
-    // Guest session should be created
     $this->assertDatabaseHas('guest_sessions', [
+        'workspace_id' => $this->workspace->id,
         'client_mac' => 'AA:BB:CC:DD:EE:FF',
         'plan_id' => $plan->id,
         'status' => 'active',
@@ -51,14 +55,14 @@ test('successful payment creates guest session', function () {
         'ssid' => 'SKY-WiFi',
     ]);
 
-    // Payment should be linked to session
     expect($payment->fresh()->guest_session_id)->not->toBeNull();
 });
 
 test('data plan creates session with data limit', function () {
-    $plan = Plan::factory()->create(['type' => 'data', 'value' => 500]); // 500 MB
+    $plan = Plan::factory()->create(['workspace_id' => $this->workspace->id, 'type' => 'data', 'value' => 500]);
 
     $payment = Payment::factory()->create([
+        'workspace_id' => $this->workspace->id,
         'status' => 'pending',
         'transaction_id' => 'PROV_DATA_1',
         'plan_id' => $plan->id,
@@ -77,6 +81,7 @@ test('data plan creates session with data limit', function () {
     ]);
 
     $this->assertDatabaseHas('guest_sessions', [
+        'workspace_id' => $this->workspace->id,
         'client_mac' => 'BB:CC:DD:EE:FF:00',
         'data_limit_mb' => 500,
         'status' => 'active',
@@ -84,9 +89,10 @@ test('data plan creates session with data limit', function () {
 });
 
 test('failed payment does not create guest session', function () {
-    $plan = Plan::factory()->create();
+    $plan = Plan::factory()->create(['workspace_id' => $this->workspace->id]);
 
-    $payment = Payment::factory()->create([
+    Payment::factory()->create([
+        'workspace_id' => $this->workspace->id,
         'status' => 'pending',
         'transaction_id' => 'PROV_FAIL_1',
         'plan_id' => $plan->id,

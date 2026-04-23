@@ -1,12 +1,12 @@
 <div>
     {{-- Header --}}
     <div class="mb-6 flex items-center gap-3">
-        <div class="grid size-11 place-items-center rounded-2xl border border-ivory-darker/70 bg-white/70 shadow-sm backdrop-blur dark:border-smoke-light/70 dark:bg-smoke-light/40">
-            <flux:icon name="credit-card" class="size-6 text-terra dark:text-terra-light" />
+        <div class="grid size-10 place-items-center rounded-xl bg-gradient-to-br from-terra/20 to-terra/5 dark:from-terra/25 dark:to-terra/10">
+            <flux:icon name="credit-card" class="size-5 text-terra dark:text-terra-light" />
         </div>
         <div>
-            <flux:heading size="lg" class="text-smoke dark:text-ivory">Payment Gateways</flux:heading>
-            <flux:text class="mt-1 text-smoke/50 dark:text-ivory/50">Configure ClickPesa for M-Pesa, Airtel Money, Tigo Pesa, HaloPesa</flux:text>
+            <h1 class="text-2xl font-bold tracking-tight text-smoke dark:text-ivory">Payment Gateways</h1>
+            <p class="mt-0.5 text-xs text-smoke/50 dark:text-ivory/40">Configure the platform ClickPesa account used for all workspace collections and future withdrawals</p>
         </div>
     </div>
 
@@ -22,7 +22,7 @@
                         </div>
                         <div>
                             <div class="text-lg font-bold text-zinc-900 dark:text-white">ClickPesa</div>
-                            <flux:text class="text-sm">Unified mobile money & card payments</flux:text>
+                            <flux:text class="text-sm">Platform-wide mobile money collection account</flux:text>
                         </div>
                     </div>
                     @if($this->clickPesaSettings)
@@ -106,8 +106,8 @@
                     <div class="flex items-start gap-3">
                         <div class="flex size-7 shrink-0 items-center justify-center rounded-full bg-terra/10 text-xs font-bold text-terra dark:bg-terra/20 dark:text-terra-light">2</div>
                         <div>
-                            <div class="text-sm font-medium text-zinc-900 dark:text-white">USSD-PUSH sent via ClickPesa</div>
-                            <flux:text class="text-xs">Payment prompt appears on customer's phone (M-Pesa, Airtel, Tigo, etc.)</flux:text>
+                            <div class="text-sm font-medium text-zinc-900 dark:text-white">USSD-PUSH sent via the platform ClickPesa account</div>
+                            <flux:text class="text-xs">Payment prompt appears on the customer's phone while funds settle into the company ClickPesa balance</flux:text>
                         </div>
                     </div>
                     <div class="flex items-start gap-3">
@@ -120,8 +120,8 @@
                     <div class="flex items-start gap-3">
                         <div class="flex size-7 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-xs font-bold text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400">4</div>
                         <div>
-                            <div class="text-sm font-medium text-zinc-900 dark:text-white">Webhook received → WiFi access granted</div>
-                            <flux:text class="text-xs">ClickPesa sends PAYMENT RECEIVED → system authorizes Omada session</flux:text>
+                            <div class="text-sm font-medium text-zinc-900 dark:text-white">Webhook received → wallet credited → WiFi access granted</div>
+                            <flux:text class="text-xs">ClickPesa sends PAYMENT RECEIVED, the workspace wallet is credited, then the system authorizes Omada access</flux:text>
                         </div>
                     </div>
                 </div>
@@ -144,7 +144,7 @@
                     </div>
                     <div class="flex gap-2">
                         <div class="flex size-6 shrink-0 items-center justify-center rounded-full bg-terra/10 text-xs font-bold text-terra dark:bg-terra/20 dark:text-terra-light">3</div>
-                        <div>Copy Client ID and API Key into the form</div>
+                        <div>Copy the company Client ID and API Key into the form</div>
                     </div>
                     <div class="flex gap-2">
                         <div class="flex size-6 shrink-0 items-center justify-center rounded-full bg-terra/10 text-xs font-bold text-terra dark:bg-terra/20 dark:text-terra-light">4</div>
@@ -152,7 +152,7 @@
                     </div>
                     <div class="flex gap-2">
                         <div class="flex size-6 shrink-0 items-center justify-center rounded-full bg-terra/10 text-xs font-bold text-terra dark:bg-terra/20 dark:text-terra-light">5</div>
-                        <div>Click "Test Connection" to verify</div>
+                        <div>Click "Test Connection" to verify the shared platform gateway account</div>
                     </div>
                 </div>
             </flux:card>
@@ -206,7 +206,7 @@
     <flux:modal name="clickpesa-settings" class="max-w-lg" wire:model.live="showClickPesaForm">
         <form wire:submit="saveClickPesa">
             <flux:heading size="lg">ClickPesa Configuration</flux:heading>
-            <flux:text class="mt-1">API credentials from your ClickPesa dashboard</flux:text>
+            <flux:text class="mt-1">API credentials from the company ClickPesa dashboard</flux:text>
 
             <div class="mt-6 space-y-4">
                 <flux:input wire:model="client_id" label="Client ID" placeholder="ID1234XHYAJK" class="font-mono" description="Found in Application details" />

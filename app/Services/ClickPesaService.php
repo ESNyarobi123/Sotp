@@ -3,7 +3,7 @@
 namespace App\Services;
 
 use App\Models\PaymentGatewaySetting;
-use Illuminate\Http\Client\Response;
+use App\Models\Workspace;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -14,15 +14,42 @@ class ClickPesaService
 
     private ?PaymentGatewaySetting $settings = null;
 
+    private ?Workspace $billingWorkspace = null;
+
+    /**
+     * Scope API calls and webhook validation to a workspace's ClickPesa credentials.
+     */
+    public function forWorkspace(?Workspace $workspace): self
+    {
+        $this->billingWorkspace = $workspace;
+        $this->settings = null;
+
+        return $this;
+    }
+
     /**
      * Get the ClickPesa gateway settings.
      */
     public function settings(): ?PaymentGatewaySetting
     {
         if ($this->settings === null) {
-            $this->settings = PaymentGatewaySetting::where('gateway', 'clickpesa')
-                ->where('is_active', true)
+            $baseQuery = PaymentGatewaySetting::query()
+                ->where('gateway', 'clickpesa')
+                ->where('is_active', true);
+
+            $platformSettings = (clone $baseQuery)
+                ->whereNull('workspace_id')
                 ->first();
+
+            if ($platformSettings) {
+                $this->settings = $platformSettings;
+            } elseif ($this->billingWorkspace) {
+                $this->settings = (clone $baseQuery)
+                    ->where('workspace_id', $this->billingWorkspace->id)
+                    ->first();
+            } else {
+                $this->settings = $baseQuery->first();
+            }
         }
 
         return $this->settings;
@@ -53,7 +80,7 @@ class ClickPesaService
             return ['success' => false, 'token' => null, 'error' => 'ClickPesa not configured'];
         }
 
-        $cacheKey = 'clickpesa_token_' . $settings->id;
+        $cacheKey = 'clickpesa_token_'.$settings->id;
 
         // Cache token for 50 minutes (tokens typically expire in 60 min)
         $cached = Cache::get($cacheKey);
@@ -67,7 +94,7 @@ class ClickPesaService
                     'client-id' => $settings->configValue('client_id'),
                     'api-key' => $settings->configValue('api_key'),
                 ])
-                ->post(self::BASE_URL . '/generate-token');
+                ->post(self::BASE_URL.'/generate-token');
 
             if ($response->successful() && $response->json('success')) {
                 $token = $response->json('token');
@@ -78,7 +105,7 @@ class ClickPesaService
 
             Log::warning('ClickPesa token generation failed', ['response' => $response->body()]);
 
-            return ['success' => false, 'token' => null, 'error' => 'Token generation failed: ' . $response->body()];
+            return ['success' => false, 'token' => null, 'error' => 'Token generation failed: '.$response->body()];
         } catch (\Exception $e) {
             Log::error('ClickPesa token error', ['error' => $e->getMessage()]);
 
@@ -119,7 +146,7 @@ class ClickPesaService
                     'Authorization' => $tokenResult['token'],
                     'Content-Type' => 'application/json',
                 ])
-                ->post(self::BASE_URL . '/payments/initiate-ussd-push-request', $payload);
+                ->post(self::BASE_URL.'/payments/initiate-ussd-push-request', $payload);
 
             if ($response->successful()) {
                 $body = $response->json();
@@ -137,9 +164,112 @@ class ClickPesaService
                 'body' => $response->body(),
             ]);
 
-            return ['success' => false, 'data' => null, 'error' => 'USSD-PUSH failed: ' . $response->body()];
+            return ['success' => false, 'data' => null, 'error' => 'USSD-PUSH failed: '.$response->body()];
         } catch (\Exception $e) {
             Log::error('ClickPesa USSD-PUSH error', ['error' => $e->getMessage()]);
+
+            return ['success' => false, 'data' => null, 'error' => $e->getMessage()];
+        }
+    }
+
+    public function createMobileMoneyPayout(array $data): array
+    {
+        $tokenResult = $this->generateToken();
+
+        if (! $tokenResult['success']) {
+            return ['success' => false, 'data' => null, 'error' => $tokenResult['error']];
+        }
+
+        $payload = [
+            'amount' => (string) $data['amount'],
+            'phoneNumber' => $data['phoneNumber'],
+            'currency' => (string) ($data['currency'] ?? 'TZS'),
+            'orderReference' => $data['orderReference'],
+        ];
+
+        $checksumKey = $this->settings()?->configValue('checksum_key');
+        if ($checksumKey) {
+            $payload['checksum'] = $this->generateChecksum($checksumKey, $payload);
+        }
+
+        try {
+            $response = Http::timeout(30)
+                ->withHeaders([
+                    'Authorization' => $tokenResult['token'],
+                    'Content-Type' => 'application/json',
+                ])
+                ->post(self::BASE_URL.'/payouts/create-mobile-money-payout', $payload);
+
+            if ($response->successful()) {
+                $body = $response->json();
+
+                Log::info('ClickPesa mobile money payout submitted', [
+                    'orderReference' => $data['orderReference'],
+                    'status' => $body['status'] ?? 'unknown',
+                    'payout_id' => $body['id'] ?? null,
+                ]);
+
+                return ['success' => true, 'data' => $body, 'error' => null];
+            }
+
+            Log::warning('ClickPesa mobile money payout failed', [
+                'status' => $response->status(),
+                'body' => $response->body(),
+                'orderReference' => $data['orderReference'],
+            ]);
+
+            return ['success' => false, 'data' => null, 'error' => 'Mobile money payout failed: '.$response->body()];
+        } catch (\Exception $e) {
+            Log::error('ClickPesa mobile money payout error', [
+                'error' => $e->getMessage(),
+                'orderReference' => $data['orderReference'],
+            ]);
+
+            return ['success' => false, 'data' => null, 'error' => $e->getMessage()];
+        }
+    }
+
+    public function queryPayoutStatus(string $orderReference): array
+    {
+        $tokenResult = $this->generateToken();
+
+        if (! $tokenResult['success']) {
+            return ['success' => false, 'data' => null, 'error' => $tokenResult['error']];
+        }
+
+        try {
+            $response = Http::timeout(30)
+                ->withHeaders([
+                    'Authorization' => $tokenResult['token'],
+                    'Content-Type' => 'application/json',
+                ])
+                ->get(self::BASE_URL.'/payouts/'.rawurlencode($orderReference));
+
+            if ($response->successful()) {
+                $body = $response->json();
+                $payload = is_array($body) && array_is_list($body) ? ($body[0] ?? []) : $body;
+
+                Log::info('ClickPesa payout status queried', [
+                    'orderReference' => $orderReference,
+                    'status' => $payload['status'] ?? 'unknown',
+                    'payout_id' => $payload['id'] ?? null,
+                ]);
+
+                return ['success' => true, 'data' => is_array($payload) ? $payload : [], 'error' => null];
+            }
+
+            Log::warning('ClickPesa payout status query failed', [
+                'status' => $response->status(),
+                'body' => $response->body(),
+                'orderReference' => $orderReference,
+            ]);
+
+            return ['success' => false, 'data' => null, 'error' => 'Payout status query failed: '.$response->body()];
+        } catch (\Exception $e) {
+            Log::error('ClickPesa payout status query error', [
+                'error' => $e->getMessage(),
+                'orderReference' => $orderReference,
+            ]);
 
             return ['success' => false, 'data' => null, 'error' => $e->getMessage()];
         }
